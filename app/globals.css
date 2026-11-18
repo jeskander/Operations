@@ -1094,3 +1094,494 @@ details[open] > summary .chev {
     transition: none !important;
   }
 }
+
+/* =========================================================
+   One editable page
+   ========================================================= */
+
+/* Group, above the name: looks like a label, works as a menu. */
+.region-select {
+  appearance: none;
+  -webkit-appearance: none;
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0.15rem 0.3rem;
+  margin: 0 0 0.35rem -0.3rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.region-select:hover {
+  background: var(--paper-2);
+}
+
+.save-state {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--graphite);
+  align-self: center;
+  min-width: 4.5rem;
+  text-align: right;
+}
+
+.save-state[data-state="error"] {
+  color: var(--rose);
+}
+
+.topbar-actions {
+  align-self: flex-start;
+  align-items: center;
+}
+
+/* Tap-to-edit text */
+.editable {
+  cursor: text;
+  border-radius: 4px;
+  outline-offset: 2px;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .editable:hover {
+    background: var(--paper-2);
+    box-shadow: 0 0 0 3px var(--paper-2);
+  }
+}
+
+.editable[data-empty] {
+  color: var(--graphite);
+  opacity: 0.65;
+}
+
+.editable-input,
+.add-field {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  field-sizing: content;
+  min-height: 1.5em;
+}
+
+.editable-input {
+  background: var(--surface);
+  box-shadow: 0 0 0 4px var(--surface), 0 0 0 5px var(--hairline);
+  border-radius: 3px;
+}
+
+.add-field {
+  font-size: 16px;
+}
+
+.add-field::placeholder {
+  color: var(--graphite);
+  opacity: 0.7;
+}
+
+.name .editable-input,
+.name .editable {
+  font-size: inherit;
+}
+
+.subtitle .editable-input {
+  font-size: 1.05rem;
+}
+
+/* Filter chips */
+.filters {
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.chip-label {
+  flex: none;
+  width: 6.2rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.chip {
+  padding: 0.22rem 0.7rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--graphite);
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.chip-more {
+  opacity: 0.6;
+}
+
+.chip-add {
+  color: var(--graphite);
+  border-style: dashed;
+}
+
+.chip-input {
+  width: 9rem;
+  background: var(--surface);
+  outline: none;
+  font-size: 16px;
+  border-color: var(--ink);
+}
+
+@media (max-width: 520px) {
+  .chip-row {
+    align-items: flex-start;
+  }
+
+  .chip-label {
+    width: 5.2rem;
+    padding-top: 0.35rem;
+  }
+}
+
+/* Sortable rows */
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.rows > li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  background: var(--paper);
+}
+
+.rows > li[data-dragging] {
+  z-index: 5;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(22 23 27 / 0.14);
+  background: var(--surface);
+}
+
+.grip {
+  flex: none;
+  width: 1.6rem;
+  margin-left: -1.9rem;
+  margin-right: 0.3rem;
+  padding: 0.2rem 0;
+  font-size: 0.8rem;
+  letter-spacing: -0.15em;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--graphite);
+  opacity: 0.35;
+  cursor: grab;
+  touch-action: manipulation;
+  border-radius: 4px;
+  transition: opacity 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.rows > li:hover > .grip,
+.grip:focus-visible {
+  opacity: 0.9;
+}
+
+.grip:hover {
+  background: var(--paper-2);
+}
+
+.rows > li[data-dragging] > .grip {
+  cursor: grabbing;
+  opacity: 1;
+}
+
+.row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The panel leaves room on the left for the handles. */
+.panel {
+  padding-left: calc(var(--gutter) + 1.6rem);
+}
+
+@media (max-width: 820px) {
+  .panel {
+    padding-left: calc(var(--gutter) + 1.2rem);
+  }
+
+  .grip {
+    width: 1.4rem;
+    margin-left: -1.6rem;
+    margin-right: 0.2rem;
+    opacity: 0.45;
+  }
+}
+
+/* Parts (sections) */
+.part {
+  border-top: 1px solid var(--hairline);
+}
+
+.part:first-child {
+  border-top: 0;
+}
+
+.part > .grip {
+  margin-top: 0.95rem;
+}
+
+.part[data-depth="1"] {
+  border-top-style: dashed;
+  margin-left: 2.5rem;
+}
+
+.part[data-depth="1"] > .grip {
+  margin-top: 0.7rem;
+}
+
+.part-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  min-height: 3rem;
+  padding: 0.8rem 0;
+}
+
+.part[data-depth="1"] .part-head {
+  min-height: 2.4rem;
+  padding: 0.55rem 0;
+}
+
+.part-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 1.02rem;
+  text-align: left;
+}
+
+.part[data-depth="1"] .part-title {
+  font-size: 0.96rem;
+}
+
+.chev-btn {
+  flex: none;
+  padding: 0.3rem 0.35rem;
+  align-self: center;
+}
+
+.chev[data-open] {
+  transform: rotate(45deg);
+}
+
+/* Lines */
+.line {
+  padding: 0.18rem 0;
+  margin-left: 2.5rem;
+}
+
+.line > .grip {
+  margin-top: 0.05rem;
+}
+
+.line[data-depth="1"] {
+  margin-left: 3.6rem;
+}
+
+.line[data-depth="2"] {
+  margin-left: 4.7rem;
+}
+
+.line-body {
+  position: relative;
+  padding-left: 1rem;
+}
+
+.line[data-list="number"] .line-body {
+  padding-left: 1.4rem;
+}
+
+.line[data-list="bullet"] .line-body::before {
+  content: "";
+  position: absolute;
+  left: 0.1rem;
+  top: 0.72em;
+  width: 5px;
+  height: 1px;
+  background: var(--graphite);
+}
+
+.line-body .cond {
+  cursor: pointer;
+}
+
+.add-row {
+  margin-left: 2.5rem;
+  padding: 0.25rem 0 0.9rem 1rem;
+}
+
+.add-row .add-line {
+  font-size: 0.92rem;
+}
+
+.panel > .add-line,
+.panel > .add-field {
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Lists: videos, links, kits, questions */
+.list-row {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.list-row > .grip {
+  margin-top: 0.9rem;
+}
+
+.row-btn {
+  width: 100%;
+}
+
+.qa {
+  display: flex;
+  flex-direction: column;
+}
+
+.q-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.85rem 0;
+  font-weight: 500;
+}
+
+.qa .q-body {
+  padding: 0 0 1.1rem;
+}
+
+/* Sheets */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(22 23 27 / 0.18);
+}
+
+.sheet {
+  width: min(560px, 100%);
+  max-height: 88dvh;
+  overflow-y: auto;
+  background: var(--paper);
+  border-radius: 12px 12px 0 0;
+  padding: 1.1rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  box-shadow: 0 -8px 40px rgb(22 23 27 / 0.12);
+}
+
+@media (min-width: 821px) {
+  .sheet-backdrop {
+    align-items: center;
+  }
+
+  .sheet {
+    border-radius: 12px;
+  }
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sheet-text {
+  color: var(--graphite);
+}
+
+.sheet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sheet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+@media (max-width: 520px) {
+  .sheet-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.chev {
+  display: inline-block;
+}
+
+.part[data-depth="1"] .step-num {
+  width: auto;
+}
+
+@media (max-width: 820px) {
+  /* The header holds the filters, so on a phone it scrolls away with the page. */
+  .topbar {
+    position: relative;
+  }
+
+  .topbar-actions {
+    position: absolute;
+    top: calc(1.3rem + env(safe-area-inset-top, 0px));
+    right: var(--gutter);
+  }
+}

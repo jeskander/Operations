@@ -11,7 +11,8 @@ export type Item = {
   consultant: string | null;
 };
 
-export type Section = { id: string; title: string; items: Item[] };
+/** A part of the operation. depth 1 makes it a sub-part of the part above. */
+export type Section = { id: string; title: string; depth: number; items: Item[] };
 export type Kit = { id: string; name: string; maker: string; url: string };
 export type Technique = { id: string; name: string };
 export type VideoGroup = "full" | "other";

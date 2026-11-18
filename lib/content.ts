@@ -1,4 +1,4 @@
-import type { Consultant, Content, Filters, Item, ListStyle, Operation, Section } from "./types";
+import type { Content, Filters, Item, ListStyle, Operation, Section } from "./types";
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -9,7 +9,7 @@ export const DEFAULT_SECTIONS = ["Pre-op & huddle", "Position & draping", "Appro
 export const emptyContent = (): Content => ({
   kits: [],
   techniques: [],
-  sections: DEFAULT_SECTIONS.map((title) => ({ id: newId(), title, items: [] })),
+  sections: DEFAULT_SECTIONS.map((title) => ({ id: newId(), title, depth: 0, items: [] })),
   videos: [],
   links: [],
   questions: [],
@@ -29,6 +29,7 @@ export function normalize(raw: unknown): Content {
     sections: arr(c.sections).map((s) => ({
       id: id(s.id),
       title: str(s.title),
+      depth: Number(s.depth) === 1 ? 1 : 0,
       items: arr(s.items).map((i) => ({
         id: id(i.id),
         text: str(i.text),
@@ -58,74 +59,6 @@ export function visible(item: Item, f: Filters): boolean {
   if (item.technique && f.technique && item.technique !== f.technique) return false;
   if (item.consultant && f.consultant && item.consultant !== f.consultant) return false;
   return true;
-}
-
-// ---------- Steps as plain text, for editing by hand ----------
-// "- text", "1. text", two spaces per level, and [Name] at the end for a kit, technique or consultant.
-
-type Named = { id: string; name: string };
-export type Markers = { kits: Named[]; techniques: Named[]; consultants: Named[] };
-
-export function markersFor(content: Content, consultants: Consultant[]): Markers {
-  return { kits: content.kits, techniques: content.techniques, consultants };
-}
-
-export function itemsToText(items: Item[], m: Markers): string {
-  const name = (list: Named[], id: string | null) => (id ? list.find((x) => x.id === id)?.name : undefined);
-  const counters: number[] = [];
-  return items
-    .map((it) => {
-      counters.length = it.depth + 1;
-      counters[it.depth] = (counters[it.depth] ?? 0) + 1;
-      const marker = it.list === "number" ? `${counters[it.depth]}. ` : "- ";
-      const tags = [name(m.kits, it.kit), name(m.techniques, it.technique), name(m.consultants, it.consultant)]
-        .filter(Boolean)
-        .map((n) => ` [${n}]`)
-        .join("");
-      return "  ".repeat(it.depth) + marker + it.text + tags;
-    })
-    .join("\n");
-}
-
-export function textToItems(text: string, previous: Item[], m: Markers): Item[] {
-  const find = (list: Named[], n: string) => list.find((x) => x.name.trim().toLowerCase() === n.trim().toLowerCase())?.id ?? null;
-  const unused = [...previous];
-  return text
-    .split("\n")
-    .filter((l) => l.trim())
-    .map((line) => {
-      const indent = line.match(/^[ \t]*/)![0].replace(/\t/g, "  ").length;
-      let rest = line.trim();
-      let list: ListStyle = "bullet";
-      const num = rest.match(/^\d+[.)]\s+/);
-      const bullet = rest.match(/^[-*•–]\s+/);
-      if (num) {
-        list = "number";
-        rest = rest.slice(num[0].length);
-      } else if (bullet) rest = rest.slice(bullet[0].length);
-
-      let kit: string | null = null;
-      let technique: string | null = null;
-      let consultant: string | null = null;
-      for (;;) {
-        const tag = rest.match(/\s*\[([^\]]+)\]\s*$/);
-        if (!tag) break;
-        const n = tag[1];
-        const k = find(m.kits, n);
-        const t = find(m.techniques, n);
-        const c = find(m.consultants, n);
-        if (k) kit = k;
-        else if (t) technique = t;
-        else if (c) consultant = c;
-        else break; // not a marker: leave it in the text
-        rest = rest.slice(0, tag.index).trimEnd();
-      }
-
-      // Keep ids for unchanged lines.
-      const match = unused.findIndex((p) => p.text === rest);
-      const prevId = match >= 0 ? unused.splice(match, 1)[0].id : newId();
-      return { id: prevId, text: rest, list, depth: Math.min(2, Math.floor(indent / 2)), kit, technique, consultant };
-    });
 }
 
 /** Everything searchable about an operation, lower-cased. */

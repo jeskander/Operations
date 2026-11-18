@@ -38,11 +38,26 @@ export async function createOperation(name: string, region: string): Promise<Ope
   return toOperation(data as Row);
 }
 
+/** Autosaves keep a revision at most this often; Claude's changes and undos always keep one. */
+const AUTOSAVE_REVISION_MINUTES = 15;
+
+async function lastRevisionAt(id: string): Promise<number> {
+  const { data } = await supabase()
+    .from("op_revisions")
+    .select("created_at")
+    .eq("operation_id", id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ? new Date((data as { created_at: string }).created_at).getTime() : 0;
+}
+
 /** Save the page, keeping what it was before as a revision. */
 export async function saveOperation(id: string, fields: OperationFields, source: string, note = ""): Promise<Operation> {
   const before = await getOperation(id);
   if (!before) throw new Error("Operation not found");
-  await supabase().from("op_revisions").insert({
+  const keep = source !== "auto" || Date.now() - (await lastRevisionAt(id)) > AUTOSAVE_REVISION_MINUTES * 60_000;
+  if (keep) await supabase().from("op_revisions").insert({
     operation_id: id,
     name: before.name,
     region: before.region,

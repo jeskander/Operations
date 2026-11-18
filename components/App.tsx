@@ -5,8 +5,7 @@ import { api } from "@/lib/api";
 import { REGIONS, matchLine, newId, searchText } from "@/lib/content";
 import type { Consultant, Filters, Operation, OperationFields, Proposal } from "@/lib/types";
 import AskBar from "./AskBar";
-import { EditBar, EditHead, EditPanel, fromDraft, toDraft, type Draft } from "./Editor";
-import { Panel, TABS, counts, type Tab } from "./OperationView";
+import OperationPage, { type Tab } from "./OperationPage";
 import ProposalSheet from "./ProposalSheet";
 
 const NO_FILTERS: Filters = { kit: "", technique: "", consultant: "" };
@@ -26,25 +25,31 @@ const writeFilters = (id: string, f: Filters) => {
 
 const fieldsOf = (op: Operation): OperationFields => ({ name: op.name, region: op.region, subtitle: op.subtitle, content: op.content });
 
-type View = { kind: "op"; id: string } | { kind: "consultants" } | null;
+const SAVE_DELAY_MS = 700;
+const UNDO_LIMIT = 60;
+
+type View = { kind: "op"; id: string } | null;
 
 const viewFromUrl = (): View => {
-  const p = new URLSearchParams(window.location.search);
-  if (p.get("op")) return { kind: "op", id: p.get("op")! };
-  if (p.has("consultants")) return { kind: "consultants" };
-  return null;
+  const id = new URLSearchParams(window.location.search).get("op");
+  return id ? { kind: "op", id } : null;
 };
 
 export default function App() {
-  const [ops, setOps] = useState<Operation[] | null>(null);
+  const [ops, setOpsState] = useState<Operation[] | null>(null);
+  const opsRef = useRef<Operation[] | null>(null);
+  const setOps = (next: Operation[] | null) => {
+    opsRef.current = next;
+    setOpsState(next);
+  };
   const [consultants, setConsultants] = useState<Consultant[]>([]);
+  const consultantsRef = useRef<Consultant[]>([]);
+  consultantsRef.current = consultants;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<View>(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("steps");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [saving, setSaving] = useState(false);
   const [ai, setAi] = useState<{ busy: boolean; note: string | null; error: boolean; where: "home" | "op" }>({
     busy: false,
     note: null,
@@ -53,9 +58,13 @@ export default function App() {
   });
   const [proposal, setProposal] = useState<{ opId: string; instruction: string; proposal: Proposal } | null>(null);
   const [accepting, setAccepting] = useState(false);
-  const [toast, setToast] = useState<{ text: string; undo?: { id: string; fields: OperationFields } } | null>(null);
+  const [toast, setToast] = useState<{ text: string; undoId?: string } | null>(null);
   const [creating, setCreating] = useState<{ name: string; region: string } | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [, bump] = useState(0);
   const mainRef = useRef<HTMLElement>(null);
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const undo = useRef(new Map<string, OperationFields[]>());
 
   // ---------- Load ----------
 
@@ -68,21 +77,18 @@ export default function App() {
           setLoadError(null);
         })
         .catch((e: Error) => setLoadError(e.message)),
-    [],
+    [], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   useEffect(() => {
     load();
     setView(viewFromUrl());
-    const onPop = () => {
-      setView(viewFromUrl());
-      setDraft(null);
-    };
+    const onPop = () => setView(viewFromUrl());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [load]);
 
-  const op = view?.kind === "op" ? (ops?.find((o) => o.id === view.id) ?? null) : null;
+  const op = view ? (ops?.find((o) => o.id === view.id) ?? null) : null;
 
   useEffect(() => {
     if (op) setFilters(readFilters(op.id));
@@ -95,11 +101,11 @@ export default function App() {
   }, [toast]);
 
   const go = (next: View) => {
-    const url = next?.kind === "op" ? `/?op=${next.id}` : next?.kind === "consultants" ? "/?consultants" : "/";
+    const url = next ? `/?op=${next.id}` : "/";
     if (url !== window.location.pathname + window.location.search) window.history.pushState(null, "", url);
     setView(next);
-    setDraft(null);
     setTab("steps");
+    setSaveState("idle");
     mainRef.current?.scrollTo(0, 0);
   };
 
@@ -108,7 +114,85 @@ export default function App() {
     else go(null);
   };
 
-  const replaceOp = (o: Operation) => setOps((list) => (list ? (list.some((x) => x.id === o.id) ? list.map((x) => (x.id === o.id ? o : x)) : [...list, o]) : [o]));
+  const replaceOp = (o: Operation) => {
+    const list = opsRef.current ?? [];
+    setOps(list.some((x) => x.id === o.id) ? list.map((x) => (x.id === o.id ? o : x)) : [...list, o]);
+  };
+
+  // ---------- Saving: every change saves itself shortly after ----------
+
+  const saveNow = useCallback(async (id: string, keepalive = false) => {
+    timers.current.delete(id);
+    const cur = opsRef.current?.find((o) => o.id === id);
+    if (!cur) return;
+    try {
+      const res = await fetch(`/api/operations/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...fieldsOf(cur), source: "auto" }),
+        keepalive,
+      });
+      if (res.status === 401) window.location.href = "/login";
+      if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Couldn't save");
+      if (!timers.current.size) setSaveState("saved");
+    } catch (e) {
+      setSaveState("error");
+      setToast({ text: `Not saved: ${(e as Error).message}` });
+    }
+  }, []);
+
+  const scheduleSave = (id: string) => {
+    clearTimeout(timers.current.get(id));
+    setSaveState("saving");
+    timers.current.set(
+      id,
+      setTimeout(() => saveNow(id), SAVE_DELAY_MS),
+    );
+  };
+
+  useEffect(() => {
+    const flush = () => {
+      for (const id of [...timers.current.keys()]) {
+        clearTimeout(timers.current.get(id));
+        saveNow(id, true);
+      }
+    };
+    const onHide = () => document.visibilityState === "hidden" && flush();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [saveNow]);
+
+  const pushUndo = (o: Operation) => {
+    const stack = undo.current.get(o.id) ?? [];
+    stack.push(fieldsOf(o));
+    if (stack.length > UNDO_LIMIT) stack.shift();
+    undo.current.set(o.id, stack);
+    bump((n) => n + 1);
+  };
+
+  const change = (id: string, next: OperationFields | ((f: OperationFields) => OperationFields)) => {
+    const cur = opsRef.current?.find((o) => o.id === id);
+    if (!cur) return;
+    const fields = typeof next === "function" ? next(fieldsOf(cur)) : next;
+    if (JSON.stringify(fields) === JSON.stringify(fieldsOf(cur))) return;
+    pushUndo(cur);
+    replaceOp({ ...cur, ...fields });
+    scheduleSave(id);
+  };
+
+  const undoLast = (id: string) => {
+    const stack = undo.current.get(id);
+    const prev = stack?.pop();
+    const cur = opsRef.current?.find((o) => o.id === id);
+    if (!prev || !cur) return;
+    bump((n) => n + 1);
+    replaceOp({ ...cur, ...prev });
+    scheduleSave(id);
+  };
 
   // ---------- List ----------
 
@@ -117,7 +201,7 @@ export default function App() {
     const q = query.trim().toLowerCase();
     const shown = q ? ops.filter((o) => q.split(/\s+/).every((w) => searchText(o).includes(w))) : ops;
     const byRegion = new Map<string, Operation[]>();
-    for (const o of shown) byRegion.set(o.region, [...(byRegion.get(o.region) ?? []), o]);
+    for (const o of [...shown].sort((a, b) => a.name.localeCompare(b.name))) byRegion.set(o.region, [...(byRegion.get(o.region) ?? []), o]);
     const order = (r: string) => (REGIONS.indexOf(r) === -1 ? 99 : REGIONS.indexOf(r));
     return [...byRegion.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0]));
   }, [ops, query]);
@@ -137,6 +221,7 @@ export default function App() {
   // ---------- Claude ----------
 
   const propose = async (target: Operation, instruction: string) => {
+    if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
     setAi({ busy: true, note: "Claude is working on it…", error: false, where: "op" });
     try {
       const r = await api<{ proposal: Proposal }>(`/api/operations/${target.id}/ai`, { method: "POST", body: { instruction } });
@@ -155,7 +240,7 @@ export default function App() {
         method: "POST",
         body: { text },
       });
-      let target = ops?.find((o) => o.id === r.operationId) ?? null;
+      let target = opsRef.current?.find((o) => o.id === r.operationId) ?? null;
       if (!target) {
         if (!r.newName) throw new Error("Couldn't tell which operation this is about. Open it and add it there.");
         const made = await api<{ operation: Operation }>("/api/operations", { method: "POST", body: { name: r.newName, region: r.region ?? "Other" } });
@@ -171,17 +256,18 @@ export default function App() {
 
   const accept = async () => {
     if (!proposal) return;
-    const before = ops?.find((o) => o.id === proposal.opId);
+    const before = opsRef.current?.find((o) => o.id === proposal.opId);
     setAccepting(true);
     try {
       const r = await api<{ operation: Operation; consultants: Consultant[] }>(`/api/operations/${proposal.opId}/accept`, {
         method: "POST",
         body: { proposal: proposal.proposal, instruction: proposal.instruction },
       });
+      if (before) pushUndo(before);
       replaceOp(r.operation);
       setConsultants(r.consultants);
       setProposal(null);
-      setToast({ text: "Saved", undo: before ? { id: before.id, fields: fieldsOf(before) } : undefined });
+      setToast({ text: "Saved", undoId: proposal.opId });
     } catch (e) {
       setToast({ text: (e as Error).message });
     } finally {
@@ -189,59 +275,53 @@ export default function App() {
     }
   };
 
-  // ---------- Saving by hand ----------
+  // ---------- Consultants (shared by every operation) ----------
 
-  const save = async () => {
-    if (!op || !draft) return;
-    setSaving(true);
+  const putConsultants = async (list: Consultant[]) => {
+    const r = await api<{ consultants: Consultant[] }>("/api/consultants", { method: "PUT", body: { consultants: list } });
+    setConsultants(r.consultants);
+    return r.consultants;
+  };
+
+  const addConsultant = async (name: string) => {
     try {
-      const r = await api<{ operation: Operation }>(`/api/operations/${op.id}`, {
-        method: "PUT",
-        body: { ...fromDraft(draft, op, consultants), source: "manual" },
-      });
-      replaceOp(r.operation);
-      setDraft(null);
-      setToast({ text: "Saved", undo: { id: op.id, fields: fieldsOf(op) } });
+      const saved = await putConsultants([...consultantsRef.current, { id: newId(), name }]);
+      return saved.find((c) => c.name === name && !consultantsRef.current.some((o) => o.id === c.id)) ?? saved[saved.length - 1] ?? null;
     } catch (e) {
       setToast({ text: (e as Error).message });
-    } finally {
-      setSaving(false);
+      return null;
     }
   };
 
-  const undo = async () => {
-    const u = toast?.undo;
-    if (!u) return;
-    setToast(null);
-    try {
-      const r = await api<{ operation: Operation }>(`/api/operations/${u.id}`, { method: "PUT", body: { ...u.fields, source: "undo" } });
-      replaceOp(r.operation);
-      setToast({ text: "Undone" });
-    } catch (e) {
-      setToast({ text: (e as Error).message });
-    }
-  };
+  const renameConsultant = (id: string, name: string) =>
+    putConsultants(consultantsRef.current.map((c) => (c.id === id ? { ...c, name } : c))).catch((e: Error) => setToast({ text: e.message }));
+
+  const removeConsultant = (id: string) =>
+    putConsultants(consultantsRef.current.filter((c) => c.id !== id)).catch((e: Error) => setToast({ text: e.message }));
+
+  // ---------- Other ----------
 
   const remove = async () => {
     if (!op) return;
-    setSaving(true);
+    clearTimeout(timers.current.get(op.id));
+    timers.current.delete(op.id);
     try {
       await api(`/api/operations/${op.id}`, { method: "DELETE" });
-      setOps((list) => list?.filter((o) => o.id !== op.id) ?? null);
+      setOps(opsRef.current?.filter((o) => o.id !== op.id) ?? null);
       setToast({ text: `Deleted ${op.name}` });
       go(null);
     } catch (e) {
       setToast({ text: (e as Error).message });
-    } finally {
-      setSaving(false);
     }
   };
 
   const setFilter = (k: keyof Filters, v: string) => {
     if (!op) return;
-    const next = { ...filters, [k]: v };
-    setFilters(next);
-    writeFilters(op.id, next);
+    setFilters((f) => {
+      const next = { ...f, [k]: v };
+      writeFilters(op.id, next);
+      return next;
+    });
   };
 
   const signOut = async () => {
@@ -249,12 +329,6 @@ export default function App() {
     window.location.href = "/login";
   };
 
-  // ---------- Render ----------
-
-  const usedConsultants = op
-    ? consultants.filter((c) => op.content.sections.some((s) => s.items.some((i) => i.consultant === c.id)))
-    : [];
-  const n = op ? counts(op, filters) : null;
   const proposalOp = proposal ? ops?.find((o) => o.id === proposal.opId) : null;
 
   return (
@@ -263,14 +337,7 @@ export default function App() {
         <div className="sidebar-head">
           <span className="wordmark">Operations</span>
         </div>
-        <input
-          id="search"
-          className="search"
-          type="search"
-          placeholder="Search everything"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <input id="search" className="search" type="search" placeholder="Search everything" value={query} onChange={(e) => setQuery(e.target.value)} />
         {creating ? (
           <form
             className="new-op-form"
@@ -279,14 +346,7 @@ export default function App() {
               create();
             }}
           >
-            <input
-              id="new-name"
-              className="input"
-              placeholder="Operation name"
-              autoFocus
-              value={creating.name}
-              onChange={(e) => setCreating({ ...creating, name: e.target.value })}
-            />
+            <input id="new-name" className="input" placeholder="Operation name" autoFocus value={creating.name} onChange={(e) => setCreating({ ...creating, name: e.target.value })} />
             <select id="new-region" className="select" value={creating.region} onChange={(e) => setCreating({ ...creating, region: e.target.value })}>
               {REGIONS.map((r) => (
                 <option key={r}>{r}</option>
@@ -317,12 +377,7 @@ export default function App() {
               {list.map((o) => {
                 const hit = query.trim() ? matchLine(o, query.trim()) : null;
                 return (
-                  <button
-                    key={o.id}
-                    className="op-row"
-                    aria-current={view?.kind === "op" && view.id === o.id ? true : undefined}
-                    onClick={() => go({ kind: "op", id: o.id })}
-                  >
+                  <button key={o.id} className="op-row" aria-current={view?.id === o.id ? true : undefined} onClick={() => go({ kind: "op", id: o.id })}>
                     <span className="op-name">{o.name}</span>
                     {(hit || o.subtitle) && <span className="op-sub">{hit ?? o.subtitle}</span>}
                   </button>
@@ -332,17 +387,8 @@ export default function App() {
           ))}
         </nav>
 
-        <AskBar
-          placeholder="Add a learning to any operation…"
-          busy={ai.busy && ai.where === "home"}
-          note={ai.where === "home" ? ai.note : null}
-          error={ai.error}
-          onSend={fileFromHome}
-        />
+        <AskBar placeholder="Add a learning to any operation…" busy={ai.busy && ai.where === "home"} note={ai.where === "home" ? ai.note : null} error={ai.error} onSend={fileFromHome} />
         <div className="sidebar-foot">
-          <button className="mono-btn" onClick={() => go({ kind: "consultants" })}>
-            Consultants
-          </button>
           <button className="mono-btn" onClick={signOut}>
             Sign out
           </button>
@@ -350,12 +396,7 @@ export default function App() {
       </aside>
 
       <main className="main" ref={mainRef}>
-        {view?.kind === "consultants" && <Consultants consultants={consultants} onBack={back} onSaved={(c) => {
-          setConsultants(c);
-          setToast({ text: "Saved" });
-        }} />}
-
-        {view?.kind === "op" && !op && (
+        {view && !op && (
           <div className="home">
             <div>
               <button className="back" onClick={back}>
@@ -368,86 +409,32 @@ export default function App() {
 
         {!view && <div className="home">Choose an operation, or add a learning and Claude will file it.</div>}
 
-        {op && n && (
+        {op && (
           <>
-            <header className="topbar">
-              {draft ? (
-                <div className="topbar-primary">
-                  <button className="back" onClick={() => setDraft(null)}>
-                    ← Stop editing
-                  </button>
-                  <EditHead draft={draft} set={setDraft} />
-                </div>
-              ) : (
-                <>
-                  <div className="topbar-primary">
-                    <button className="back" onClick={back}>
-                      ← Operations
-                    </button>
-                    <h1 className="name">{op.name}</h1>
-                    {op.subtitle && <p className="subtitle">{op.subtitle}</p>}
-                  </div>
-                  <div className="topbar-actions">
-                    <button className="mono-btn" data-boxed="" onClick={() => setDraft(toDraft(op, consultants))}>
-                      Edit
-                    </button>
-                  </div>
-                  {(op.content.kits.length > 0 || op.content.techniques.length > 0 || usedConsultants.length > 0) && (
-                    <dl className="filters">
-                      {op.content.kits.length > 0 && (
-                        <FilterSelect label="Kit" all="All kits" value={filters.kit} options={op.content.kits} onChange={(v) => setFilter("kit", v)} />
-                      )}
-                      {op.content.techniques.length > 0 && (
-                        <FilterSelect
-                          label="Technique"
-                          all="Both"
-                          value={filters.technique}
-                          options={op.content.techniques}
-                          onChange={(v) => setFilter("technique", v)}
-                        />
-                      )}
-                      {usedConsultants.length > 0 && (
-                        <FilterSelect
-                          label="Consultant"
-                          all="Anyone"
-                          value={filters.consultant}
-                          options={usedConsultants}
-                          onChange={(v) => setFilter("consultant", v)}
-                        />
-                      )}
-                    </dl>
-                  )}
-                </>
-              )}
-              <nav className="tabs" role="tablist">
-                {TABS.map((t) => (
-                  <button key={t.id} className="tab" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-                    {t.label}
-                    {n[t.id] > 0 && <span className="tab-count">{n[t.id]}</span>}
-                  </button>
-                ))}
-              </nav>
-            </header>
-
-            <section className="panel">
-              {draft ? (
-                <EditPanel draft={draft} set={setDraft} tab={tab} consultants={consultants} />
-              ) : (
-                <Panel op={op} consultants={consultants} filters={filters} tab={tab} />
-              )}
-            </section>
-
-            {draft ? (
-              <EditBar busy={saving} onSave={save} onCancel={() => setDraft(null)} onDelete={remove} />
-            ) : (
-              <AskBar
-                placeholder="Add or change something…"
-                busy={ai.busy && ai.where === "op"}
-                note={ai.where === "op" ? ai.note : null}
-                error={ai.error}
-                onSend={(text) => propose(op, text)}
-              />
-            )}
+            <OperationPage
+              op={op}
+              consultants={consultants}
+              filters={filters}
+              setFilter={setFilter}
+              tab={tab}
+              setTab={setTab}
+              change={(next) => change(op.id, next)}
+              saveState={saveState}
+              canUndo={!!undo.current.get(op.id)?.length}
+              onUndo={() => undoLast(op.id)}
+              onDelete={remove}
+              onBack={back}
+              addConsultant={addConsultant}
+              renameConsultant={renameConsultant}
+              removeConsultant={removeConsultant}
+            />
+            <AskBar
+              placeholder="Ask Claude to add or change something…"
+              busy={ai.busy && ai.where === "op"}
+              note={ai.where === "op" ? ai.note : null}
+              error={ai.error}
+              onSend={(text) => propose(op, text)}
+            />
           </>
         )}
       </main>
@@ -467,108 +454,19 @@ export default function App() {
       {toast && (
         <div className="toast" role="status">
           <span>{toast.text}</span>
-          {toast.undo && (
-            <button className="mono-btn" onClick={undo}>
+          {toast.undoId && (
+            <button
+              className="mono-btn"
+              onClick={() => {
+                undoLast(toast.undoId!);
+                setToast({ text: "Undone" });
+              }}
+            >
               Undo
             </button>
           )}
         </div>
       )}
     </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  all,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  all: string;
-  value: string;
-  options: { id: string; name: string }[];
-  onChange: (v: string) => void;
-}) {
-  const valid = options.some((o) => o.id === value) ? value : "";
-  return (
-    <div>
-      <dt className="label">{label}</dt>
-      <dd>
-        <select aria-label={label} value={valid} data-any={valid ? undefined : ""} onChange={(e) => onChange(e.target.value)}>
-          <option value="">{all}</option>
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-      </dd>
-    </div>
-  );
-}
-
-function Consultants({ consultants, onBack, onSaved }: { consultants: Consultant[]; onBack: () => void; onSaved: (c: Consultant[]) => void }) {
-  const [list, setList] = useState(consultants);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api<{ consultants: Consultant[] }>("/api/consultants", { method: "PUT", body: { consultants: list.filter((c) => c.name.trim()) } });
-      setList(r.consultants);
-      onSaved(r.consultants);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <header className="topbar">
-        <div className="topbar-primary">
-          <button className="back" onClick={onBack}>
-            ← Operations
-          </button>
-          <h1 className="page-title">Consultants</h1>
-          <p className="subtitle">Mark a step for one consultant and it shows only when you choose them.</p>
-        </div>
-      </header>
-      <section className="panel">
-        {list.map((c, i) => (
-          <div key={c.id} className="edit-block">
-            <div className="edit-row">
-              <input
-                id={`c-${c.id}`}
-                className="input"
-                value={c.name}
-                placeholder="e.g. Mr Smith"
-                onChange={(e) => setList(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-              />
-              <button className="mono-btn" aria-label="Remove" onClick={() => setList(list.filter((_, j) => j !== i))}>
-                ✕
-              </button>
-            </div>
-          </div>
-        ))}
-        <button className="mono-btn add-btn" data-boxed="" onClick={() => setList([...list, { id: newId(), name: "" }])}>
-          + Consultant
-        </button>
-        {error && <p className="hint">{error}</p>}
-      </section>
-      <div className="edit-bar">
-        <div />
-        <div>
-          <button className="mono-btn" data-primary="" onClick={save} disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </div>
-      </div>
-    </>
   );
 }

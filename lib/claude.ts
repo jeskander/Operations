@@ -50,6 +50,7 @@ const PROPOSE_TOOL: BetaToolUnion = {
       obj({
         id: s,
         title: s,
+        depth: { type: "integer", description: "0 for a main part, 1 for a sub-part of the main part above it" },
         items: list(
           obj({
             id: s,
@@ -71,7 +72,7 @@ const PROPOSE_TOOL: BetaToolUnion = {
 };
 
 const SYSTEM = `You keep a UK trauma & orthopaedic surgeon's personal notes on operations. Each operation is one page:
-- sections: the steps of the operation in the order they happen (e.g. Pre-op & huddle, Position & draping, Approach, then the operation's own steps, Closure, Post-op). Each holds short lines (bullets or numbered, up to 2 levels deep).
+- sections: the parts of the operation in the order they happen (e.g. Pre-op & huddle, Position & draping, Approach, then the operation's own steps, Closure, Post-op). A section with depth 1 is a sub-part of the main part above it (e.g. Procedure › Insert guide wire). Each holds short lines (bullets or numbered, up to 2 levels deep).
 - A line can be marked for one kit, one technique (e.g. robotic vs conventional) or one consultant, and then only shows when that one is chosen. Lines that apply to everyone have no marker.
 - kits: implant systems used for this operation, each with its op tech link.
 - videos (group "full" for the operation being performed, "other" for anything else), links (AO Surgery Reference, approaches, op note templates…), questions: the knowledge relevant to this case, as questions a consultant would ask, with answers.
