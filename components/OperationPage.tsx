@@ -36,6 +36,9 @@ type Props = {
   op: Operation;
   /** The groups an operation can be filed under. */
   groups: string[];
+  /** Every operation, for [[ links. */
+  operations: { id: string; name: string }[];
+  onSearch: () => void;
   consultants: Consultant[];
   filters: Filters;
   setFilter: (k: keyof Filters, v: string) => void;
@@ -182,7 +185,17 @@ export default function OperationPage(p: Props) {
               </button>
             </div>
             {editorMode === "notion" ? (
-              <BlockEditor key={op.id} opId={op.id} content={c} consultants={consultants} filters={filters} update={update} addConsultant={p.addConsultant} />
+              <BlockEditor
+                key={op.id}
+                opId={op.id}
+                content={c}
+                consultants={consultants}
+                filters={filters}
+                update={update}
+                addConsultant={p.addConsultant}
+                operations={p.operations}
+                onSearch={p.onSearch}
+              />
             ) : (
               <Steps opId={op.id} content={c} consultants={consultants} filters={filters} update={update} addConsultant={p.addConsultant} />
             )}

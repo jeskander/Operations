@@ -20,8 +20,30 @@
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   --ease: cubic-bezier(0.19, 1, 0.22, 1);
 
+  /* Picked blocks (Esc, Shift+↑/↓). */
+  --pick: rgb(60 110 87 / 0.12);
+
   --sidebar: 300px;
   --gutter: clamp(1.25rem, 4vw, 4rem);
+}
+
+/* Dark mode (Cmd/Ctrl+Shift+L, or Settings). */
+:root[data-theme="dark"] {
+  --paper: #17181b;
+  --paper-2: #232428;
+  --surface: #1d1e22;
+  --ink: #ececea;
+  --graphite: #9a9ba2;
+  --hairline: #34353b;
+  --accent: #7fb79a;
+  --rose: #d99aa3;
+  --rose-tint: #2c2124;
+  --amber: #d6b56e;
+  --amber-tint: #2a251b;
+  --sage: #86b896;
+  --sage-tint: #1c2721;
+  --pick: rgb(127 183 154 / 0.16);
+  color-scheme: dark;
 }
 
 *,
@@ -722,7 +744,7 @@ details[open] > summary .chev {
   bottom: 0;
   z-index: 3;
   padding: 1.5rem var(--gutter) calc(1rem + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(to bottom, rgb(241 241 239 / 0), var(--paper) 40%);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--paper) 0%, transparent), var(--paper) 40%);
 }
 
 .ask-inner {
@@ -2078,4 +2100,33 @@ details[open] > summary .chev {
   .op-editor .bn-editor {
     padding-inline: 1.2rem 0;
   }
+}
+
+/* Bigger bullets, closer to Notion's. */
+.op-editor .bn-block-content[data-content-type="bulletListItem"]::before {
+  transform: scale(1.45);
+  transform-origin: center;
+}
+
+.op-editor .bn-block-content[data-content-type="numberedListItem"]::before {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cmd/Ctrl+\ hides the list on a wide screen. */
+@media (min-width: 821px) {
+  .shell[data-sidebar="hidden"] {
+    grid-template-columns: 0 1fr;
+  }
+  .shell[data-sidebar="hidden"] .sidebar {
+    visibility: hidden;
+    overflow: hidden;
+    border-right: 0;
+  }
+}
+
+/* The @ and [[ lists inside the new editor. */
+.op-editor .picker,
+.bn-container .picker {
+  margin: 0;
+  min-width: 260px;
 }

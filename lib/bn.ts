@@ -5,7 +5,7 @@
 import { fixDepths } from "./blocks";
 import type { Block, BlockType } from "./types";
 
-type Styles = { bold?: true; italic?: true; code?: true; strike?: true };
+type Styles = { bold?: true; italic?: true; code?: true; strike?: true; underline?: true };
 type StyledText = { type: "text"; text: string; styles: Styles };
 type LinkContent = { type: "link"; href: string; content: StyledText[] };
 type Inline = StyledText | LinkContent;
@@ -34,7 +34,7 @@ const FROM_BN: Record<string, BlockType> = Object.fromEntries(Object.entries(TO_
 
 // ---------- Inline text ----------
 
-const TOKEN = /\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|~([^~\n]+)~|`([^`\n]+)`|\*([^*\s\n][^*\n]*?)\*|(?<![\w])_([^_\s\n][^_\n]*?)_(?![\w])/g;
+const TOKEN = /<u>([^<\n]+)<\/u>|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|~~([^~\n]+)~~|~([^~\n]+)~|`([^`\n]+)`|\*([^*\s\n][^*\n]*?)\*|(?<![\w])_([^_\s\n][^_\n]*?)_(?![\w])/g;
 
 /** Markdown on one line (bold, italic, code, strike-through, links) to styled text. */
 export function mdToInline(md: string): Inline[] {
@@ -43,11 +43,12 @@ export function mdToInline(md: string): Inline[] {
   let last = 0;
   for (const m of md.matchAll(TOKEN)) {
     plain(md.slice(last, m.index));
-    if (m[1] !== undefined) out.push({ type: "link", href: m[2], content: [{ type: "text", text: m[1], styles: {} }] });
-    else if (m[3] !== undefined || m[4] !== undefined) out.push({ type: "text", text: m[3] ?? m[4], styles: { bold: true } });
-    else if (m[5] !== undefined || m[6] !== undefined) out.push({ type: "text", text: m[5] ?? m[6], styles: { strike: true } });
-    else if (m[7] !== undefined) out.push({ type: "text", text: m[7], styles: { code: true } });
-    else out.push({ type: "text", text: m[8] ?? m[9], styles: { italic: true } });
+    if (m[1] !== undefined) out.push({ type: "text", text: m[1], styles: { underline: true } });
+    else if (m[2] !== undefined) out.push({ type: "link", href: m[3], content: [{ type: "text", text: m[2], styles: {} }] });
+    else if (m[4] !== undefined || m[5] !== undefined) out.push({ type: "text", text: m[4] ?? m[5], styles: { bold: true } });
+    else if (m[6] !== undefined || m[7] !== undefined) out.push({ type: "text", text: m[6] ?? m[7], styles: { strike: true } });
+    else if (m[8] !== undefined) out.push({ type: "text", text: m[8], styles: { code: true } });
+    else out.push({ type: "text", text: m[9] ?? m[10], styles: { italic: true } });
     last = (m.index ?? 0) + m[0].length;
   }
   plain(md.slice(last));
@@ -68,6 +69,7 @@ function styled(t: { text?: string; styles?: Record<string, unknown> }): string 
     if (st.strike) core = `~~${core}~~`;
     if (st.italic) core = `*${core}*`;
     if (st.bold) core = `**${core}**`;
+    if (st.underline) core = `<u>${core}</u>`;
   }
   s = lead + core + trail;
   return s;

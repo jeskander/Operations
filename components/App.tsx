@@ -145,6 +145,61 @@ export default function App() {
     setOps(list.some((x) => x.id === o.id) ? list.map((x) => (x.id === o.id ? o : x)) : [...list, o]);
   };
 
+  // ---------- Notion's app-wide keys ----------
+
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [dark, setDark] = useState(false);
+  useEffect(() => setDark(document.documentElement.dataset.theme === "dark"), []);
+  const setTheme = (on: boolean) => {
+    setDark(on);
+    document.documentElement.dataset.theme = on ? "dark" : "light";
+    try {
+      localStorage.setItem("op-theme", on ? "dark" : "light");
+    } catch {}
+  };
+
+  const focusSearch = () => {
+    setSidebarHidden(false);
+    if (window.matchMedia("(max-width: 820px)").matches) go(null);
+    requestAnimationFrame(() => {
+      const el = document.getElementById("search") as HTMLInputElement | null;
+      el?.focus();
+      el?.select();
+    });
+  };
+
+  const keysRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keysRef.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || !(e.metaKey || e.ctrlKey)) return;
+    const k = e.key.toLowerCase();
+    const inEditor = !!(e.target as HTMLElement | null)?.closest?.(".bn-editor");
+    if ((k === "p" || (k === "k" && !inEditor)) && !e.altKey) {
+      e.preventDefault();
+      focusSearch();
+    } else if (k === "[" || k === "]") {
+      e.preventDefault();
+      if (k === "[") window.history.back();
+      else window.history.forward();
+    } else if (k === "\\") {
+      e.preventDefault();
+      setSidebarHidden((v) => !v);
+    } else if (k === "l" && e.shiftKey) {
+      e.preventDefault();
+      setTheme(!dark);
+    } else if (k === "n" && !e.shiftKey) {
+      // Browsers may keep Cmd+N for a new window; where they let it through, it starts a new operation.
+      e.preventDefault();
+      setSidebarHidden(false);
+      go(null);
+      setCreating({ name: "", region: settings.groups[0] ?? "Other" });
+    }
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keysRef.current(e);
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, []);
+
   // ---------- Locking after 10 minutes without use ----------
 
   const lastUse = useRef(Date.now());
@@ -430,10 +485,12 @@ export default function App() {
     setSettings(r.settings);
   };
 
+  const opsList = useMemo(() => (ops ?? []).map((o) => ({ id: o.id, name: o.name })), [ops]);
+
   const proposalOp = proposal ? ops?.find((o) => o.id === proposal.opId) : null;
 
   return (
-    <div className="shell" data-view={view ? "op" : "list"}>
+    <div className="shell" data-view={view ? "op" : "list"} data-sidebar={sidebarHidden ? "hidden" : undefined}>
       <aside className="sidebar">
         <div className="sidebar-head">
           <span className="wordmark">Operations</span>
@@ -516,6 +573,8 @@ export default function App() {
             }}
             onLock={lock}
             onBack={back}
+            dark={dark}
+            onDark={setTheme}
           />
         )}
 
@@ -537,6 +596,8 @@ export default function App() {
             <OperationPage
               op={op}
               groups={settings.groups}
+              operations={opsList}
+              onSearch={focusSearch}
               consultants={consultants}
               filters={filters}
               setFilter={setFilter}

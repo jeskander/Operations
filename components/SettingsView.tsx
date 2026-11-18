@@ -12,11 +12,13 @@ type Props = {
   onSaveConsultants: (list: Consultant[]) => Promise<void>;
   onLock: () => void;
   onBack: () => void;
+  dark: boolean;
+  onDark: (on: boolean) => void;
 };
 
 const toLines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
 
-export default function SettingsView({ settings, consultants, onSave, onSaveConsultants, onLock, onBack }: Props) {
+export default function SettingsView({ settings, consultants, onSave, onSaveConsultants, onLock, onBack, dark, onDark }: Props) {
   const [instructions, setInstructions] = useState(settings.instructions);
   const [parts, setParts] = useState(settings.parts.join("\n"));
   const [groups, setGroups] = useState(settings.groups.join("\n"));
@@ -121,6 +123,28 @@ export default function SettingsView({ settings, consultants, onSave, onSaveCons
           <button className="mono-btn add-btn" data-boxed="" onClick={() => setPeople([...people, { id: newId(), name: "" }])}>
             + Consultant
           </button>
+        </div>
+
+        <div className="setting">
+          <p className="label">Appearance</p>
+          <p className="hint">On this device. Cmd/Ctrl+Shift+L switches it anywhere.</p>
+          <div className="chips">
+            <button type="button" className="chip" aria-pressed={!dark} onClick={() => onDark(false)}>
+              Light
+            </button>
+            <button type="button" className="chip" aria-pressed={dark} onClick={() => onDark(true)}>
+              Dark
+            </button>
+          </div>
+        </div>
+
+        <div className="setting">
+          <p className="label">Keyboard</p>
+          <p className="hint">
+            As in Notion. Cmd/Ctrl+Opt+0–8 turn into text, heading 1–3, to-do, bullet, numbered, part, code. Cmd/Ctrl+/ turn into. Tab / Shift+Tab indent.
+            Cmd/Ctrl+Shift+↑/↓ move. Cmd/Ctrl+D duplicate. Esc picks a block, Shift+↑/↓ picks more. Cmd/Ctrl+Enter opens a part or ticks a to-do. Cmd/Ctrl+B / I / U / E,
+            Cmd/Ctrl+Shift+S, Cmd/Ctrl+K link. Cmd/Ctrl+P search, Cmd/Ctrl+[ / ] back and forward, Cmd/Ctrl+\ sidebar. @ tags, [[ links to an operation.
+          </p>
         </div>
 
         <div className="setting">
