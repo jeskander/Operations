@@ -9,7 +9,7 @@ import { KitSheet, Knowledge, Links, OpTech, Videos, type Update } from "./Lists
 import Sheet from "./Sheet";
 import dynamic from "next/dynamic";
 import Steps from "./Steps";
-import VersionSwitch, { type Version } from "./VersionSwitch";
+import type { Version } from "./VersionSwitch";
 
 // The Notion-style editor runs in the browser only.
 const BlockEditor = dynamic(() => import("./BlockEditor"), { ssr: false, loading: () => <p className="empty reading">Loading the editor…</p> });
@@ -106,7 +106,6 @@ export default function OperationPage(p: Props) {
           <p className="subtitle">
             <Editable value={op.subtitle} placeholder="Add a line under the name" ariaLabel="subtitle" onCommit={(v) => setField("subtitle", v.trim())} />
           </p>
-          <VersionSwitch value={p.version} onChange={p.onVersion} />
         </div>
         <div className="topbar-actions">
           <span className="save-state" data-state={p.saveState}>

@@ -6,7 +6,7 @@ import { contentToNote, noteLines } from "@/lib/note";
 import type { Consultant, Operation, OperationFields } from "@/lib/types";
 import Editable from "./Editable";
 import Sheet from "./Sheet";
-import VersionSwitch, { type Version } from "./VersionSwitch";
+import type { Version } from "./VersionSwitch";
 
 const NoteEditor = dynamic(() => import("./NoteEditor"), { ssr: false, loading: () => <p className="empty reading">Loading…</p> });
 
@@ -48,7 +48,6 @@ export default function SimplePage(p: Props) {
           <h1 className="name">
             <Editable value={op.name} placeholder="Operation name" ariaLabel="name" onCommit={(v) => v.trim() && setField("name", v.trim())} />
           </h1>
-          <VersionSwitch value={p.version} onChange={p.onVersion} />
         </div>
         <div className="topbar-actions">
           <span className="save-state" data-state={p.saveState}>

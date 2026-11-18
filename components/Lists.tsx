@@ -4,10 +4,10 @@ import { useState } from "react";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { newId } from "@/lib/content";
-import type { Content, Kit, Link, Question, Video, VideoGroup } from "@/lib/types";
+import type { Content, Kit, Link, Question, Video } from "@/lib/types";
 import Editable, { AddField } from "./Editable";
 import { Inline, Markdown } from "./Markdown";
-import Sheet, { Choice } from "./Sheet";
+import Sheet from "./Sheet";
 import { SortableRow } from "./Steps";
 
 export type Update = (next: Content | ((c: Content) => Content)) => void;
@@ -110,14 +110,12 @@ function Field({ id, label, value, onChange, placeholder, url }: { id: string; l
 
 export function Videos({ content, update }: { content: Content; update: Update }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const full = content.videos.filter((v) => v.group === "full");
-  const other = content.videos.filter((v) => v.group !== "full");
   const set = (id: string, change: Partial<Video>) => update((c) => ({ ...c, videos: c.videos.map((v) => (v.id === id ? { ...v, ...change } : v)) }));
 
-  const add = (group: VideoGroup) => (text: string) => {
+  const add = (text: string) => {
     const id = newId();
     const url = isUrl(text) ? withScheme(text) : "";
-    update((c) => ({ ...c, videos: [...c.videos, { id, title: url ? "" : text, url, source: url ? hostOf(url) : "", note: "", group }] }));
+    update((c) => ({ ...c, videos: [...c.videos, { id, title: url ? "" : text, url, source: url ? hostOf(url) : "", note: "", group: "full" }] }));
     if (url) fillTitle(url, (title, source) => update((c) => ({ ...c, videos: c.videos.map((v) => (v.id === id && !v.title ? { ...v, title, source: v.source || source } : v)) })));
   };
 
@@ -126,26 +124,14 @@ export function Videos({ content, update }: { content: Content; update: Update }
 
   return (
     <>
-      <p className="label sub-label">Full operation</p>
-      <SortableList items={full} onReorder={(f) => update((c) => ({ ...c, videos: [...f, ...c.videos.filter((x) => x.group !== "full")] }))} onHandle={(x) => setEditing(x.id)} row={row} />
-      <AddField className="add-line" placeholder="+ Paste a video link" inputMode="url" onAdd={add("full")} />
-      <p className="label sub-label">Other videos</p>
-      <SortableList items={other} onReorder={(o) => update((c) => ({ ...c, videos: [...c.videos.filter((x) => x.group === "full"), ...o] }))} onHandle={(x) => setEditing(x.id)} row={row} />
-      <AddField className="add-line" placeholder="+ Paste a video link" inputMode="url" onAdd={add("other")} />
+      <SortableList items={content.videos} onReorder={(videos) => update((c) => ({ ...c, videos }))} onHandle={(x) => setEditing(x.id)} row={row} />
+      <AddField className="add-line" placeholder="+ Paste a video link" inputMode="url" onAdd={add} />
 
       {v && (
         <Sheet title="Video" onClose={() => setEditing(null)}>
           <Field id="v-title" label="Title" value={v.title} onChange={(title) => set(v.id, { title })} />
           <Field id="v-url" label="Link" value={v.url} url onChange={(url) => set(v.id, { url })} />
           <Field id="v-source" label="Source" value={v.source} placeholder="YouTube" onChange={(source) => set(v.id, { source })} />
-          <Choice<VideoGroup>
-            options={[
-              { value: "full", label: "Full operation" },
-              { value: "other", label: "Other" },
-            ]}
-            value={v.group}
-            onChange={(group) => set(v.id, { group })}
-          />
           <div className="sheet-actions">
             <button
               type="button"
@@ -219,8 +205,7 @@ export function KitSheet({ kit, update, onClose }: { kit: Kit; update: Update; o
   const set = (change: Partial<Kit>) => update((c) => ({ ...c, kits: c.kits.map((k) => (k.id === kit.id ? { ...k, ...change } : k)) }));
   return (
     <Sheet title="Kit" onClose={onClose}>
-      <Field id="k-name" label="Name" value={kit.name} onChange={(name) => set({ name })} />
-      <Field id="k-maker" label="Maker" value={kit.maker} placeholder="e.g. DePuy Synthes" onChange={(maker) => set({ maker })} />
+      <Field id="k-name" label="Name" value={kit.name} placeholder="e.g. DePuy Synthes Attune" onChange={(name) => set({ name })} />
       <Field id="k-url" label="Op tech link" value={kit.url} url placeholder="Paste the surgical technique PDF link" onChange={(url) => set({ url })} />
       <div className="sheet-actions">
         <button
@@ -254,21 +239,19 @@ export function OpTech({ content, update }: { content: Content; update: Update }
         onHandle={(k) => setEditing(k.id)}
         row={(k) =>
           k.url ? (
-            <LinkRow href={k.url} title={k.name} sub={k.maker} meta="Op tech ↗" />
+            <LinkRow href={k.url} title={k.name} sub="" meta="↗" />
           ) : (
             <button type="button" className="row row-btn" onClick={() => setEditing(k.id)}>
               <span className="row-main">
                 <span className="row-title">{k.name || "Unnamed kit"}</span>
-                {k.maker && <span className="row-sub">{k.maker}</span>}
               </span>
-              <span className="row-meta">Add op tech</span>
             </button>
           )
         }
       />
       <AddField
         className="add-line"
-        placeholder="+ Add a kit, e.g. Attune"
+        placeholder="+ Add a kit, e.g. DePuy Synthes Attune"
         onAdd={(name) => {
           const id = newId();
           update((c) => ({ ...c, kits: [...c.kits, { id, name, maker: "", url: "" }] }));

@@ -76,18 +76,17 @@ export default function App() {
   const [noteProposal, setNoteProposal] = useState<{ opId: string; instruction: string; summary: string[]; html: string; before: string } | null>(null);
   // Simple (one note) or full (steps, tabs, tags). Kept per device; simple unless switched.
   // Simple (one note), Notion-style or Classic (the full page with either steps editor). Kept per device.
-  const [mode, setModeState] = useState<Version>("simple");
+  const [mode, setModeState] = useState<Version>("notion");
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("op-mode");
-      if (saved === "notion" || saved === "classic" || saved === "simple") setModeState(saved);
-      else if (saved === "full") setModeState(localStorage.getItem("op-editor") === "classic" ? "classic" : "notion");
+      const saved = localStorage.getItem("op-version");
+      if (saved === "classic" || saved === "simple") setModeState(saved);
     } catch {}
   }, []);
   const setMode = (m: Version) => {
     setModeState(m);
     try {
-      localStorage.setItem("op-mode", m);
+      localStorage.setItem("op-version", m);
     } catch {}
   };
   const [accepting, setAccepting] = useState(false);

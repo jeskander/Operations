@@ -131,7 +131,7 @@ export default function SettingsView({ settings, consultants, onSave, onSaveCons
         <div className="setting">
           <p className="label">Version</p>
           <p className="hint">
-            Also at the top of every operation. Simple: one note, edited by hand or by Claude. Notion-style and Classic: the full page (steps with parts, tags
+            Notion-style is the default. Simple: one note, edited by hand or by Claude. Notion-style and Classic: the full page (steps with parts, tags
             and filters, plus videos, links, op tech and knowledge), with the steps in the Notion-style editor or the classic one. The simple note starts from
             the full page the first time you open an operation in it; after that the two are kept separately. On this device.
           </p>
