@@ -2104,8 +2104,16 @@ details[open] > summary .chev {
 
 /* Bigger bullets, closer to Notion's. */
 .op-editor .bn-block-content[data-content-type="bulletListItem"]::before {
-  transform: scale(1.45);
-  transform-origin: center;
+  content: "" !important;
+  align-self: flex-start;
+  min-width: 24px;
+  height: 1.5em;
+  background: radial-gradient(circle at 50% 50%, currentColor 0 2.7px, transparent 3.2px);
+}
+
+/* A point under a point: a ring. */
+.op-editor [data-content-type="bulletListItem"] ~ .bn-block-group .bn-block-content[data-content-type="bulletListItem"]::before {
+  background: radial-gradient(circle at 50% 50%, transparent 0 2.1px, currentColor 2.5px 3.2px, transparent 3.7px);
 }
 
 .op-editor .bn-block-content[data-content-type="numberedListItem"]::before {
