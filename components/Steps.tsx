@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -13,107 +13,132 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { newId, visible } from "@/lib/content";
-import type { Consultant, Content, Filters, Item, ListStyle, Section } from "@/lib/types";
-import Editable, { AddField } from "./Editable";
+import { duplicate, indent, moveBlock, numbering, outdent, removeBlock, removeSubtree, shortcut, subtreeEnd, visibleBlocks } from "@/lib/blocks";
+import { newId } from "@/lib/content";
+import type { Block, BlockType, Consultant, Content, Filters } from "@/lib/types";
 import { Inline } from "./Markdown";
 import Sheet, { Choice } from "./Sheet";
 
-// The page as one flat list: a part's header, then its lines. Dragging moves rows within it.
-type Row = { kind: "s"; id: string; s: Section } | { kind: "i"; id: string; it: Item; sid: string };
+type Update = (next: Content | ((c: Content) => Content)) => void;
+type Caret = number | "end";
+type TagKind = "kit" | "technique" | "consultant";
+type Option = { kind: TagKind; id: string | null; name: string; label: string };
 
-const flatten = (sections: Section[]): Row[] =>
-  sections.flatMap((s) => [{ kind: "s" as const, id: `s:${s.id}`, s }, ...s.items.map((it) => ({ kind: "i" as const, id: `i:${it.id}`, it, sid: s.id }))]);
+const KIND_LABEL: Record<TagKind, string> = { kit: "Kit", technique: "Mode", consultant: "Consultant" };
 
-function unflatten(rows: Row[]): Section[] {
-  const out: Section[] = [];
-  const loose: Item[] = [];
-  for (const r of rows) {
-    if (r.kind === "s") out.push({ ...r.s, items: [] });
-    else if (out.length) out[out.length - 1].items.push(r.it);
-    else loose.push(r.it);
-  }
-  if (out.length) out[0].items.unshift(...loose);
-  return out;
-}
+export const TYPES: { value: BlockType; label: string }[] = [
+  { value: "toggle", label: "▸ Part" },
+  { value: "bullet", label: "• Bullet" },
+  { value: "number", label: "1. Numbered" },
+  { value: "text", label: "Text" },
+  { value: "heading", label: "Heading" },
+];
 
-/** Where a part's block ends: its lines and, for a main part, its sub-parts. */
-function blockEnd(rows: Row[], start: number): number {
-  const head = rows[start];
-  const depth = head.kind === "s" ? head.s.depth : 0;
-  let i = start + 1;
-  while (i < rows.length) {
-    const r = rows[i];
-    if (r.kind === "s" && r.s.depth <= depth) break;
-    i++;
-  }
-  return i;
-}
+const blank = (type: BlockType, depth: number, text = ""): Block => ({ id: newId(), type, text, depth, kit: null, technique: null, consultant: null });
 
-function moveRow(rows: Row[], activeId: string, overId: string): Row[] {
-  const from = rows.findIndex((r) => r.id === activeId);
-  const to = rows.findIndex((r) => r.id === overId);
-  if (from < 0 || to < 0 || from === to) return rows;
-  const active = rows[from];
-
-  if (active.kind === "i") {
-    const out = [...rows];
-    out.splice(from, 1);
-    out.splice(to, 0, active);
-    return out;
-  }
-
-  // A part moves with its lines and sub-parts, landing before or after the whole part it was dropped on.
-  const end = blockEnd(rows, from);
-  const block = rows.slice(from, end);
-  const rest = [...rows.slice(0, from), ...rows.slice(end)];
-  const over = rest.findIndex((r) => r.id === overId);
-  if (over < 0) return rows;
-  let head = over;
-  while (head >= 0 && rest[head].kind !== "s") head--;
-  let at: number;
-  if (head < 0) at = 0;
-  else if (to > from) at = blockEnd(rest, head);
-  else at = head;
-  rest.splice(at, 0, ...block);
-  return rest;
-}
-
-const readCollapsed = (opId: string, sections: Section[]): Set<string> => {
+function readClosed(opId: string, blocks: Block[]): Set<string> {
   try {
-    const saved = localStorage.getItem(`op-open-${opId}`);
-    if (saved) {
-      const open = new Set(JSON.parse(saved) as string[]);
-      return new Set(sections.filter((s) => !open.has(s.id)).map((s) => s.id));
-    }
+    const saved = localStorage.getItem(`op-closed-${opId}`);
+    if (saved) return new Set(JSON.parse(saved) as string[]);
   } catch {}
-  return new Set(sections.slice(1).map((s) => s.id));
-};
+  // First visit: the first part open, the others closed.
+  return new Set(blocks.filter((b) => b.type === "toggle" && b.depth === 0).slice(1).map((b) => b.id));
+}
 
 type Props = {
   opId: string;
   content: Content;
   consultants: Consultant[];
   filters: Filters;
-  update: (next: Content | ((c: Content) => Content)) => void;
+  update: Update;
+  addConsultant: (name: string) => Promise<Consultant | null>;
 };
 
-export default function Steps({ opId, content, consultants, filters, update }: Props) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [focusId, setFocusId] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [menu, setMenu] = useState<{ kind: "i" | "s"; id: string } | null>(null);
+export default function Steps({ opId, content, consultants, filters, update, addConsultant }: Props) {
+  const blocks = content.blocks;
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const [focus, setFocus] = useState<{ id: string; caret: Caret } | null>(null);
+  const [draft, setDraftState] = useState<{ id: string; text: string } | null>(null);
+  const [picker, setPicker] = useState<{ id: string; start: number; query: string; index: number } | null>(null);
+  const [menu, setMenu] = useState<string | null>(null);
+  const draftRef = useRef(draft);
+  const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputs = useRef(new Map<string, HTMLTextAreaElement>());
 
-  useEffect(() => setCollapsed(readCollapsed(opId, content.sections)), [opId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setDraft = (d: { id: string; text: string } | null) => {
+    draftRef.current = d;
+    setDraftState(d);
+  };
+
+  useEffect(() => setClosed(readClosed(opId, blocks)), [opId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setOpen = (id: string, open: boolean) => {
-    const next = new Set(collapsed);
-    if (open) next.delete(id);
-    else next.add(id);
-    setCollapsed(next);
-    try {
-      localStorage.setItem(`op-open-${opId}`, JSON.stringify(content.sections.filter((s) => !next.has(s.id)).map((s) => s.id)));
-    } catch {}
+    setClosed((prev) => {
+      const next = new Set(prev);
+      if (open) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(`op-closed-${opId}`, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Typing stays local and is saved when you pause, leave the block or change its structure.
+  const withDraft = (b: Block[]) => {
+    const d = draftRef.current;
+    return d ? b.map((x) => (x.id === d.id && x.text !== d.text ? { ...x, text: d.text } : x)) : b;
+  };
+  const setBlocks = (fn: (b: Block[]) => Block[]) => {
+    if (idle.current) clearTimeout(idle.current);
+    update((c) => ({ ...c, blocks: fn(withDraft(c.blocks)) }));
+  };
+  const commit = () => {
+    if (idle.current) clearTimeout(idle.current);
+    if (draftRef.current) update((c) => ({ ...c, blocks: withDraft(c.blocks) }));
+  };
+
+  const shown = useMemo(() => visibleBlocks(blocks, filters, closed), [blocks, filters, closed]);
+  const numbers = useMemo(() => numbering(shown), [shown]);
+
+  // Body flag so the phone toolbar can replace the Claude bar while typing.
+  useEffect(() => {
+    if (focus) document.body.dataset.editing = "";
+    else delete document.body.dataset.editing;
+    return () => {
+      delete document.body.dataset.editing;
+    };
+  }, [focus]);
+
+  // Put the caret where it belongs when a block gains focus.
+  useLayoutEffect(() => {
+    if (!focus) return;
+    const el = inputs.current.get(focus.id);
+    if (!el) return;
+    if (document.activeElement !== el) el.focus();
+    const at = focus.caret === "end" ? el.value.length : Math.min(focus.caret, el.value.length);
+    el.setSelectionRange(at, at);
+  }, [focus]);
+
+  const startEditing = (id: string, text: string, caret: Caret) => {
+    setDraft({ id, text });
+    setFocus({ id, caret });
+  };
+
+  const focusBlock = (id: string, caret: Caret = "end") => {
+    if (draftRef.current?.id !== id) {
+      commit();
+      const b = blocks.find((x) => x.id === id);
+      setDraft(b ? { id, text: b.text } : null);
+    }
+    setFocus({ id, caret });
+  };
+
+  const blur = () => {
+    commit();
+    setDraft(null);
+    setFocus(null);
+    setPicker(null);
   };
 
   const sensors = useSensors(
@@ -122,276 +147,419 @@ export default function Steps({ opId, content, consultants, filters, update }: P
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const filtering = !!(filters.kit || filters.technique || filters.consultant);
-
-  // What's on screen: lines hidden by the filters or a closed part drop out.
-  const shown = useMemo(() => {
-    const out: Row[] = [];
-    let mainClosed = false;
-    for (const s of content.sections) {
-      if (s.depth === 0) mainClosed = collapsed.has(s.id);
-      else if (mainClosed) continue;
-      const lines = s.items.filter((it) => visible(it, filters));
-      if (filtering && s.items.length && !lines.length) continue; // nothing here for this case
-      out.push({ kind: "s", id: `s:${s.id}`, s });
-      if (!collapsed.has(s.id)) out.push(...lines.map((it) => ({ kind: "i" as const, id: `i:${it.id}`, it, sid: s.id })));
-    }
-    return out;
-  }, [content.sections, collapsed, filters, filtering]);
-
-  // Every change works on the latest page, so several in a row (edit, then Enter) don't undo each other.
-  const setSections = (fn: (sections: Section[]) => Section[]) => update((c) => ({ ...c, sections: fn(c.sections) }));
-
-  const editItem = (id: string, change: Partial<Item>) =>
-    setSections((all) => all.map((s) => ({ ...s, items: s.items.map((it) => (it.id === id ? { ...it, ...change } : it)) })));
-  const editSection = (id: string, change: Partial<Section>) => setSections((all) => all.map((s) => (s.id === id ? { ...s, ...change } : s)));
-
-  const removeItem = (id: string) => setSections((all) => all.map((s) => ({ ...s, items: s.items.filter((it) => it.id !== id) })));
-
-  const insertAfter = (sid: string, afterId: string | null, base?: Partial<Item>): string => {
-    const it: Item = { id: newId(), text: "", list: base?.list ?? "bullet", depth: base?.depth ?? 0, kit: null, technique: null, consultant: null };
-    setSections((all) =>
-      all.map((s) => {
-        if (s.id !== sid) return s;
-        const items = [...s.items];
-        const at = afterId ? items.findIndex((x) => x.id === afterId) + 1 : items.length;
-        items.splice(at, 0, it);
-        return { ...s, items };
-      }),
-    );
-    return it.id;
-  };
-
-  const addLine = (sid: string, text: string) =>
-    setSections((all) =>
-      all.map((x) => {
-        if (x.id !== sid) return x;
-        const last = x.items[x.items.length - 1];
-        return { ...x, items: [...x.items, { id: newId(), text, list: last?.list ?? "bullet", depth: last?.depth ?? 0, kit: null, technique: null, consultant: null }] };
-      }),
-    );
-
-  const addPart = () => {
-    const s: Section = { id: newId(), title: "", depth: 0, items: [] };
-    setSections((all) => [...all, s]);
-    setRenaming(s.id);
-  };
-
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
     const a = String(e.active.id);
     const o = String(e.over.id);
-    setSections((all) => unflatten(moveRow(flatten(all), a, o)));
+    setBlocks((b) => moveBlock(b, a, o));
   };
 
-  const nameOf = (list: { id: string; name: string }[], id: string | null) => (id ? list.find((x) => x.id === id)?.name : undefined);
-  const tags = (it: Item) =>
+  // ---------- @ tags ----------
+
+  const options = (query: string): Option[] => {
+    const q = query.trim().toLowerCase();
+    const all: Option[] = [
+      ...content.kits.map((k) => ({ kind: "kit" as const, id: k.id, name: k.name, label: k.name })),
+      ...content.techniques.map((t) => ({ kind: "technique" as const, id: t.id, name: t.name, label: t.name })),
+      ...consultants.map((p) => ({ kind: "consultant" as const, id: p.id, name: p.name, label: p.name })),
+    ].filter((o) => !q || o.name.toLowerCase().includes(q));
+    if (q && !all.some((o) => o.name.toLowerCase() === q)) {
+      const name = query.trim();
+      for (const kind of ["kit", "technique", "consultant"] as TagKind[]) all.push({ kind, id: null, name, label: `New ${KIND_LABEL[kind].toLowerCase()} “${name}”` });
+    }
+    return all.slice(0, 12);
+  };
+
+  const applyTag = async (blockId: string, o: Option) => {
+    const d = draftRef.current;
+    const p = picker;
+    setPicker(null);
+    // Take the "@query" out of the text.
+    if (d && p && d.id === blockId) {
+      const head = d.text.slice(0, p.start);
+      const tail = d.text.slice(p.start + 1 + p.query.length);
+      const text = (tail.trim() ? head + tail : head.trimEnd()).replace(/ {2,}/g, " ");
+      startEditing(blockId, text, p.start);
+    }
+    let id = o.id;
+    if (!id && o.kind === "consultant") {
+      const made = await addConsultant(o.name);
+      if (!made) return;
+      id = made.id;
+    }
+    const tagId = id ?? newId();
+    if (!id && o.kind === "kit") update((c) => ({ ...c, kits: [...c.kits, { id: tagId, name: o.name, maker: "", url: "" }] }));
+    if (!id && o.kind === "technique") update((c) => ({ ...c, techniques: [...c.techniques, { id: tagId, name: o.name }] }));
+    setBlocks((b) => b.map((x) => (x.id === blockId ? { ...x, [o.kind]: tagId } : x)));
+  };
+
+  // ---------- Typing ----------
+
+  const onChange = (b: Block, el: HTMLTextAreaElement) => {
+    const text = el.value;
+    const caret = el.selectionStart ?? text.length;
+    // Notion's shortcuts: "- ", "1. ", "> ", "# " at the start turn the block into that type.
+    const sc = shortcut(text);
+    if (sc && caret === text.length - sc.rest.length) {
+      setDraft({ id: b.id, text: sc.rest });
+      setBlocks((all) => all.map((x) => (x.id === b.id ? { ...x, type: sc.type } : x)));
+      if (sc.type === "toggle") setOpen(b.id, true);
+      setFocus({ id: b.id, caret: 0 });
+      return;
+    }
+    setDraft({ id: b.id, text });
+    const at = text.slice(0, caret).match(/(^|\s)@([^@\n]{0,30})$/);
+    setPicker(at ? { id: b.id, start: caret - at[2].length - 1, query: at[2], index: 0 } : null);
+    if (idle.current) clearTimeout(idle.current);
+    idle.current = setTimeout(commit, 1500);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, b: Block) => {
+    const el = e.currentTarget;
+    const text = el.value;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+
+    if (picker && picker.id === b.id) {
+      const opts = options(picker.query);
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = opts.length || 1;
+        setPicker({ ...picker, index: (picker.index + (e.key === "ArrowDown" ? 1 : n - 1)) % n });
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && opts[picker.index]) {
+        e.preventDefault();
+        applyTag(b.id, opts[picker.index]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setPicker(null);
+        return;
+      }
+    }
+
+    const idx = shown.findIndex((x) => x.id === b.id);
+
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      // Enter on an empty list item turns it back into text, or brings it out a level.
+      if (!text && (b.type === "bullet" || b.type === "number")) {
+        setBlocks((all) => (b.depth > 0 ? outdent(all, b.id) : all.map((x) => (x.id === b.id ? { ...x, type: "text" } : x))));
+        return;
+      }
+      const before = text.slice(0, start);
+      const after = text.slice(end);
+      const i = blocks.findIndex((x) => x.id === b.id);
+      const hasKids = subtreeEnd(blocks, i) > i + 1;
+      const open = !closed.has(b.id);
+      // Like Notion: a new line inside an open part, a new part after a closed one, the same kind of line otherwise.
+      const made =
+        b.type === "toggle" && open
+          ? blank("bullet", b.depth + 1, after)
+          : b.type === "toggle"
+            ? blank("toggle", b.depth, after)
+            : b.type === "heading"
+              ? blank("text", b.depth, after)
+              : blank(b.type, hasKids ? b.depth + 1 : b.depth, after);
+      setDraft({ id: b.id, text: before });
+      setBlocks((all) => {
+        const j = all.findIndex((x) => x.id === b.id);
+        const at = b.type === "toggle" && !open ? subtreeEnd(all, j) : b.type === "heading" ? subtreeEnd(all, j) : j + 1;
+        const out = [...all];
+        out.splice(at, 0, made);
+        return out;
+      });
+      startEditing(made.id, after, 0);
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      setBlocks((all) => (e.shiftKey ? outdent(all, b.id) : indent(all, b.id)));
+      setFocus({ id: b.id, caret: start });
+      return;
+    }
+
+    if (e.key === "Backspace" && start === 0 && end === 0) {
+      if (b.type !== "text") {
+        // The first Backspace turns a bullet, number, part or heading back into text.
+        e.preventDefault();
+        setBlocks((all) => all.map((x) => (x.id === b.id ? { ...x, type: "text" } : x)));
+        return;
+      }
+      const prev = shown[idx - 1];
+      if (!prev) return;
+      e.preventDefault();
+      // Join this block onto the end of the one above.
+      const joined = prev.text + text;
+      setDraft(null);
+      setBlocks((all) => removeBlock(all, b.id).map((x) => (x.id === prev.id ? { ...x, text: joined } : x)));
+      startEditing(prev.id, joined, prev.text.length);
+      return;
+    }
+
+    if (e.key === "ArrowUp" && start === 0 && end === 0 && shown[idx - 1]) {
+      e.preventDefault();
+      focusBlock(shown[idx - 1].id, "end");
+      return;
+    }
+    if (e.key === "ArrowDown" && start === text.length && shown[idx + 1]) {
+      e.preventDefault();
+      focusBlock(shown[idx + 1].id, 0);
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      el.blur();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
+      e.preventDefault();
+      let copyId = "";
+      setBlocks((all) => {
+        const r = duplicate(all, b.id, newId);
+        copyId = r.copyId;
+        return r.blocks;
+      });
+      if (copyId) startEditing(copyId, text, "end");
+    }
+  };
+
+  // ---------- Block actions (menu and phone toolbar) ----------
+
+  const setType = (id: string, type: BlockType) => {
+    setBlocks((all) => all.map((x) => (x.id === id ? { ...x, type } : x)));
+    if (type === "toggle") setOpen(id, true);
+  };
+  const setTag = (id: string, kind: TagKind, value: string | null) => setBlocks((all) => all.map((x) => (x.id === id ? { ...x, [kind]: value } : x)));
+
+  const addAtEnd = () => {
+    const last = blocks[blocks.length - 1];
+    const inPart = last && !closed.has(blocks.filter((x) => x.depth === 0).pop()?.id ?? "") && blocks.some((x) => x.type === "toggle" && x.depth === 0);
+    const b = inPart ? blank("bullet", 1) : blank("toggle", 0);
+    setBlocks((all) => [...all, b]);
+    startEditing(b.id, "", 0);
+  };
+
+  const tagNames = (b: Block) =>
     [
-      !filters.kit && nameOf(content.kits, it.kit),
-      !filters.technique && nameOf(content.techniques, it.technique),
-      !filters.consultant && nameOf(consultants, it.consultant),
+      !filters.kit && content.kits.find((k) => k.id === b.kit)?.name,
+      !filters.technique && content.techniques.find((t) => t.id === b.technique)?.name,
+      !filters.consultant && consultants.find((c) => c.id === b.consultant)?.name,
     ].filter(Boolean) as string[];
 
-  // Numbering: main parts count 01, 02…; numbered lines count within their part and level.
+  const menuBlock = menu ? blocks.find((b) => b.id === menu) : undefined;
+  const focused = focus ? blocks.find((b) => b.id === focus.id) : undefined;
   let partNo = 0;
-  const lineNo = new Map<string, number>();
-  {
-    let counters: number[] = [];
-    let current = "";
-    for (const r of shown) {
-      if (r.kind === "s") {
-        counters = [];
-        current = r.s.id;
-        continue;
-      }
-      if (r.sid !== current) continue;
-      counters.length = r.it.depth + 1;
-      counters[r.it.depth] = (counters[r.it.depth] ?? 0) + 1;
-      lineNo.set(r.it.id, counters[r.it.depth]);
-    }
-  }
-
-  const menuItem = menu?.kind === "i" ? content.sections.flatMap((s) => s.items).find((it) => it.id === menu.id) : undefined;
-  const menuSection = menu?.kind === "s" ? content.sections.find((s) => s.id === menu.id) : undefined;
 
   return (
     <>
-      {!content.sections.length && <p className="empty">No parts yet. Add one below, or ask Claude to draft the steps.</p>}
+      {!blocks.length && (
+        <p className="empty">
+          Nothing here yet. Tap <em>+ Add a block</em>, then type <em>&gt; space</em> for a part, <em>- space</em> for a bullet, <em>@</em> to tag.
+        </p>
+      )}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={shown.map((r) => r.id)} strategy={verticalListSortingStrategy}>
-          <ol className="rows">
-            {shown.map((r, idx) => {
-              if (r.kind === "s") {
-                const s = r.s;
-                if (s.depth === 0) partNo += 1;
-                const open = !collapsed.has(s.id);
-                const empty = open && (!shown[idx + 1] || shown[idx + 1].kind === "s");
-                return (
-                  <Fragment key={r.id}>
-                  <SortableRow id={r.id} className="part" data-depth={s.depth} data-open={open || undefined} onHandle={() => setMenu({ kind: "s", id: s.id })} handleLabel={`Move or change ${s.title || "part"}`}>
-                    <div className="part-head">
-                      <span className="step-num">{s.depth === 0 ? String(partNo).padStart(2, "0") : "›"}</span>
-                      {renaming === s.id ? (
-                        <Editable
-                          value={s.title}
-                          placeholder="Name this part"
-                          className="part-title"
-                          autoEdit
-                          onCommit={(v) => editSection(s.id, { title: v.trim() })}
-                          onDone={() => {
-                            setRenaming(null);
-                            setOpen(s.id, true);
+        <SortableContext items={shown.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+          <ol className="blocks">
+            {shown.map((b) => {
+              const isPart = b.type === "toggle" && b.depth === 0;
+              if (isPart) partNo += 1;
+              const open = !closed.has(b.id);
+              const editing = focus?.id === b.id;
+              const value = editing && draft?.id === b.id ? draft.text : b.text;
+              const pick = picker?.id === b.id ? options(picker.query) : null;
+              return (
+                <SortableRow
+                  key={b.id}
+                  id={b.id}
+                  className="block"
+                  data-type={b.type}
+                  data-part={isPart || undefined}
+                  onHandle={() => {
+                    blur();
+                    setMenu(b.id);
+                  }}
+                  handleLabel="Drag to move, tap for options"
+                  style={{ "--depth": b.depth } as React.CSSProperties}
+                >
+                  <div className="block-line">
+                    {isPart && (
+                      <button type="button" className="step-num" onClick={() => setOpen(b.id, !open)} aria-label={open ? "Close part" : "Open part"}>
+                        {String(partNo).padStart(2, "0")}
+                      </button>
+                    )}
+                    {b.type === "toggle" && !isPart && (
+                      <button type="button" className="tri" data-open={open || undefined} onClick={() => setOpen(b.id, !open)} aria-label={open ? "Close" : "Open"}>
+                        ▸
+                      </button>
+                    )}
+                    {b.type === "bullet" && <span className="marker">•</span>}
+                    {b.type === "number" && <span className="marker num">{numbers.get(b.id)}.</span>}
+                    <div className="block-text">
+                      {editing ? (
+                        <textarea
+                          ref={(el) => {
+                            if (el) inputs.current.set(b.id, el);
+                            else inputs.current.delete(b.id);
+                          }}
+                          className="block-input"
+                          rows={1}
+                          value={value}
+                          placeholder={b.type === "toggle" ? "Part name" : "Type > for a part, - for a bullet, @ to tag"}
+                          aria-label="Block text"
+                          onChange={(e) => onChange(b, e.currentTarget)}
+                          onKeyDown={(e) => onKeyDown(e, b)}
+                          onBlur={(e) => {
+                            // Moving to the phone toolbar or the tag list keeps the block open.
+                            const to = e.relatedTarget as HTMLElement | null;
+                            if (to?.closest(".kb-bar, .picker")) return;
+                            if (focus?.id === b.id) blur();
                           }}
                         />
                       ) : (
-                        <button type="button" className="part-title" onClick={() => setOpen(s.id, !open)} onDoubleClick={() => setRenaming(s.id)}>
-                          {s.title || "Untitled part"}
-                        </button>
+                        <span
+                          className="block-view"
+                          data-empty={b.text ? undefined : ""}
+                          onClick={(e) => {
+                            if ((e.target as HTMLElement).closest("a")) return;
+                            focusBlock(b.id, "end");
+                          }}
+                        >
+                          {b.text ? <Inline>{b.text}</Inline> : b.type === "toggle" ? "Untitled part" : " "}
+                        </span>
                       )}
-                      <button type="button" className="chev-btn" aria-label={open ? "Close" : "Open"} onClick={() => setOpen(s.id, !open)}>
+                      {tagNames(b).map((t) => (
+                        <button key={t} type="button" className="cond" onClick={() => setMenu(b.id)}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    {isPart && (
+                      <button type="button" className="chev-btn" aria-label={open ? "Close part" : "Open part"} onClick={() => setOpen(b.id, !open)}>
                         <span className="chev" data-open={open || undefined} />
                       </button>
-                    </div>
-                  </SortableRow>
-                  {empty && <AddLine sid={s.id} onAdd={addLine} />}
-                  </Fragment>
-                );
-              }
-
-              const it = r.it;
-              const next = shown[idx + 1];
-              const endOfPart = !next || next.kind === "s";
-              return (
-                <Fragment key={r.id}>
-                <SortableRow
-                  id={r.id}
-                  className="line"
-                  data-list={it.list}
-                  data-depth={it.depth}
-                  onHandle={() => setMenu({ kind: "i", id: it.id })}
-                  handleLabel="Move or change this line"
-                >
-                  <div className="line-body">
-                    {it.list === "number" && <span className="item-n">{lineNo.get(it.id)}.</span>}
-                    <Editable
-                      value={it.text}
-                      placeholder="Type here"
-                      render={(v) => <Inline>{v}</Inline>}
-                      autoEdit={focusId === it.id}
-                      ariaLabel="line"
-                      onCommit={(v) => (v.trim() ? editItem(it.id, { text: v.trim() }) : removeItem(it.id))}
-                      onDone={() => focusId === it.id && setFocusId(null)}
-                      onEnter={() => setFocusId(insertAfter(r.sid, it.id, it))}
-                      onBackspaceEmpty={() => {
-                        const prev = shown[idx - 1];
-                        removeItem(it.id);
-                        if (prev?.kind === "i") setFocusId(prev.it.id);
-                      }}
-                      onTab={(shift) => editItem(it.id, { depth: Math.max(0, Math.min(2, it.depth + (shift ? -1 : 1))) })}
-                    />
-                    {tags(it).map((t) => (
-                      <button key={t} type="button" className="cond" onClick={() => setMenu({ kind: "i", id: it.id })}>
-                        {t}
-                      </button>
-                    ))}
+                    )}
                   </div>
+                  {pick && (
+                    <div className="picker" role="listbox" aria-label="Tag this block">
+                      {pick.length ? (
+                        pick.map((o, i) => (
+                          <button
+                            key={`${o.kind}-${o.id ?? o.name}`}
+                            type="button"
+                            role="option"
+                            aria-selected={i === picker!.index}
+                            className="picker-item"
+                            onPointerDown={(e) => e.preventDefault()}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => applyTag(b.id, o)}
+                          >
+                            <span className="picker-kind">{KIND_LABEL[o.kind]}</span>
+                            <span>{o.label}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="picker-empty">Type a name to add a kit, mode or consultant</p>
+                      )}
+                    </div>
+                  )}
                 </SortableRow>
-                {endOfPart && <AddLine sid={r.sid} onAdd={addLine} />}
-                </Fragment>
               );
             })}
           </ol>
         </SortableContext>
       </DndContext>
-      <button type="button" className="mono-btn add-btn" data-boxed="" onClick={addPart}>
-        + Part
+      <button type="button" className="add-block" onClick={addAtEnd}>
+        + Add a block
       </button>
 
-      {menuItem && (
-        <Sheet title="Line" onClose={() => setMenu(null)}>
-          <p className="sheet-text">{menuItem.text || "Empty line"}</p>
-          <MarkerChoice label="Kit" all="Every kit" list={content.kits} value={menuItem.kit} onChange={(kit) => editItem(menuItem.id, { kit })} />
-          <MarkerChoice label="Mode" all="Every mode" list={content.techniques} value={menuItem.technique} onChange={(technique) => editItem(menuItem.id, { technique })} />
-          <MarkerChoice label="Consultant" all="Everyone" list={consultants} value={menuItem.consultant} onChange={(consultant) => editItem(menuItem.id, { consultant })} />
+      {focused && (
+        <KeyboardBar
+          block={focused}
+          onIndent={() => setBlocks((all) => indent(all, focused.id))}
+          onOutdent={() => setBlocks((all) => outdent(all, focused.id))}
+          onType={(t) => setType(focused.id, focused.type === t ? "text" : t)}
+          onTag={() => {
+            const el = inputs.current.get(focused.id);
+            if (!el) return;
+            const at = el.selectionStart ?? el.value.length;
+            const head = el.value.slice(0, at);
+            const insert = head && !/\s$/.test(head) ? " @" : "@";
+            const text = head + insert + el.value.slice(at);
+            const caret = at + insert.length;
+            setDraft({ id: focused.id, text });
+            setPicker({ id: focused.id, start: caret - 1, query: "", index: 0 });
+            setFocus({ id: focused.id, caret });
+          }}
+          onMenu={() => {
+            const id = focused.id;
+            blur();
+            setMenu(id);
+          }}
+          onDone={blur}
+        />
+      )}
+
+      {menuBlock && (
+        <Sheet title="Block" onClose={() => setMenu(null)}>
+          <textarea
+            id="block-text"
+            className="textarea"
+            value={menuBlock.text}
+            placeholder="Text"
+            onChange={(e) => {
+              const text = e.target.value;
+              setBlocks((all) => all.map((x) => (x.id === menuBlock.id ? { ...x, text } : x)));
+            }}
+          />
           <div className="sheet-row">
-            <Choice<ListStyle>
-              options={[
-                { value: "bullet", label: "• Bullet" },
-                { value: "number", label: "1. Numbered" },
-              ]}
-              value={menuItem.list}
-              onChange={(list) => editItem(menuItem.id, { list })}
-            />
+            <p className="label">Turn into</p>
+            <Choice<BlockType> options={TYPES} value={menuBlock.type} onChange={(t) => setType(menuBlock.id, t)} />
           </div>
           <div className="sheet-row">
             <div className="chips">
-              <button type="button" className="chip" disabled={menuItem.depth === 0} onClick={() => editItem(menuItem.id, { depth: menuItem.depth - 1 })}>
-                ← Less indent
+              <button type="button" className="chip" disabled={menuBlock.depth === 0} onClick={() => setBlocks((all) => outdent(all, menuBlock.id))}>
+                ⇤ Unindent
               </button>
-              <button type="button" className="chip" disabled={menuItem.depth === 2} onClick={() => editItem(menuItem.id, { depth: menuItem.depth + 1 })}>
-                Indent →
+              <button type="button" className="chip" onClick={() => setBlocks((all) => indent(all, menuBlock.id))}>
+                Indent ⇥
               </button>
             </div>
           </div>
+          <TagChoice label="Kit" all="Every kit" list={content.kits} value={menuBlock.kit} onChange={(v) => setTag(menuBlock.id, "kit", v)} />
+          <TagChoice label="Mode" all="Every mode" list={content.techniques} value={menuBlock.technique} onChange={(v) => setTag(menuBlock.id, "technique", v)} />
+          <TagChoice label="Consultant" all="Everyone" list={consultants} value={menuBlock.consultant} onChange={(v) => setTag(menuBlock.id, "consultant", v)} />
+          {menuBlock.type === "toggle" && <p className="hint">A tag on a part applies to everything inside it.</p>}
           <div className="sheet-actions">
             <button
               type="button"
               className="mono-btn"
               data-danger=""
               onClick={() => {
-                removeItem(menuItem.id);
+                setBlocks((all) => removeSubtree(all, menuBlock.id));
                 setMenu(null);
               }}
             >
-              Delete line
-            </button>
-          </div>
-        </Sheet>
-      )}
-
-      {menuSection && (
-        <Sheet title="Part" onClose={() => setMenu(null)}>
-          <input
-            id="part-name"
-            className="input"
-            value={menuSection.title}
-            placeholder="Name this part"
-            onChange={(e) => editSection(menuSection.id, { title: e.target.value })}
-          />
-          <div className="sheet-row">
-            <Choice<"0" | "1">
-              options={[
-                { value: "0", label: "Main part" },
-                { value: "1", label: "Sub-part of the part above" },
-              ]}
-              value={menuSection.depth === 1 ? "1" : "0"}
-              onChange={(v) => editSection(menuSection.id, { depth: Number(v) })}
-            />
-          </div>
-          <p className="hint">Hold ⋮⋮ and drag to move a part with all its lines.</p>
-          <div className="sheet-actions">
-            <button
-              type="button"
-              className="mono-btn"
-              data-danger=""
-              onClick={() => {
-                setSections((all) => all.filter((s) => s.id !== menuSection.id));
-                setMenu(null);
-              }}
-            >
-              Delete part{menuSection.items.length ? ` and its ${menuSection.items.length} line${menuSection.items.length === 1 ? "" : "s"}` : ""}
+              Delete
+              {(() => {
+                const i = blocks.findIndex((x) => x.id === menuBlock.id);
+                const inside = subtreeEnd(blocks, i) - i - 1;
+                return inside ? ` with ${inside} inside` : "";
+              })()}
             </button>
             <button
               type="button"
               className="mono-btn"
               data-boxed=""
               onClick={() => {
-                setOpen(menuSection.id, true);
+                setBlocks((all) => duplicate(all, menuBlock.id, newId).blocks);
                 setMenu(null);
-                setFocusId(insertAfter(menuSection.id, null));
               }}
             >
-              + Add line
+              Duplicate
             </button>
           </div>
         </Sheet>
@@ -400,36 +568,65 @@ export default function Steps({ opId, content, consultants, filters, update }: P
   );
 }
 
-function AddLine({ sid, onAdd }: { sid: string; onAdd: (sid: string, text: string) => void }) {
-  return (
-    <li className="add-row">
-      <AddField className="add-line" placeholder="+ Add a line" onAdd={(v) => onAdd(sid, v)} />
-    </li>
-  );
-}
-
-function MarkerChoice({
-  label,
-  all,
-  list,
-  value,
-  onChange,
-}: {
-  label: string;
-  all: string;
-  list: { id: string; name: string }[];
-  value: string | null;
-  onChange: (v: string | null) => void;
-}) {
+function TagChoice({ label, all, list, value, onChange }: { label: string; all: string; list: { id: string; name: string }[]; value: string | null; onChange: (v: string | null) => void }) {
   if (!list.length) return null;
   return (
     <div className="sheet-row">
       <p className="label">Only for this {label.toLowerCase()}</p>
-      <Choice
-        options={[{ value: "", label: all }, ...list.map((x) => ({ value: x.id, label: x.name || "Unnamed" }))]}
-        value={value ?? ""}
-        onChange={(v) => onChange(v || null)}
-      />
+      <Choice options={[{ value: "", label: all }, ...list.map((x) => ({ value: x.id, label: x.name || "Unnamed" }))]} value={value ?? ""} onChange={(v) => onChange(v || null)} />
+    </div>
+  );
+}
+
+/** Above the phone keyboard: the keys a phone doesn't have. Tapping keeps the keyboard up. */
+function KeyboardBar({
+  block,
+  onIndent,
+  onOutdent,
+  onType,
+  onTag,
+  onMenu,
+  onDone,
+}: {
+  block: Block;
+  onIndent: () => void;
+  onOutdent: () => void;
+  onType: (t: BlockType) => void;
+  onTag: () => void;
+  onMenu: () => void;
+  onDone: () => void;
+}) {
+  const [bottom, setBottom] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const place = () => setBottom(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    place();
+    vv.addEventListener("resize", place);
+    vv.addEventListener("scroll", place);
+    return () => {
+      vv.removeEventListener("resize", place);
+      vv.removeEventListener("scroll", place);
+    };
+  }, []);
+  const keep = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
+  const key = (label: string, aria: string, on: () => void, pressed?: boolean) => (
+    <button type="button" className="kb-key" aria-label={aria} aria-pressed={pressed} onPointerDown={keep} onMouseDown={keep} onClick={on}>
+      {label}
+    </button>
+  );
+  return (
+    <div className="kb-bar" style={{ bottom }}>
+      {key("⇤", "Unindent", onOutdent)}
+      {key("⇥", "Indent", onIndent)}
+      {key("@", "Tag", onTag)}
+      {key("▸", "Part", () => onType("toggle"), block.type === "toggle")}
+      {key("•", "Bullet", () => onType("bullet"), block.type === "bullet")}
+      {key("1.", "Numbered", () => onType("number"), block.type === "number")}
+      {key("⋯", "More", onMenu)}
+      <button type="button" className="kb-key kb-done" onPointerDown={keep} onMouseDown={keep} onClick={onDone}>
+        Done
+      </button>
     </div>
   );
 }
@@ -441,6 +638,7 @@ export function SortableRow({
   onHandle,
   handleLabel,
   children,
+  style,
   ...data
 }: {
   id: string;
@@ -448,6 +646,7 @@ export function SortableRow({
   onHandle: () => void;
   handleLabel: string;
   children: React.ReactNode;
+  style?: React.CSSProperties;
   [key: `data-${string}`]: unknown;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -456,7 +655,7 @@ export function SortableRow({
       ref={setNodeRef}
       className={className}
       data-dragging={isDragging || undefined}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
+      style={{ ...style, transform: CSS.Translate.toString(transform), transition }}
       {...(data as Record<string, string>)}
     >
       <button type="button" ref={setActivatorNodeRef} className="grip" aria-label={handleLabel} onClick={onHandle} {...attributes} {...listeners}>

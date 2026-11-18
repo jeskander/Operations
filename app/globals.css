@@ -1585,3 +1585,255 @@ details[open] > summary .chev {
     right: var(--gutter);
   }
 }
+
+/* =========================================================
+   Notion-style blocks
+   ========================================================= */
+
+.blocks {
+  display: flex;
+  flex-direction: column;
+}
+
+.blocks > li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding-left: calc(var(--depth, 0) * 1.6rem);
+  background: var(--paper);
+}
+
+.blocks > li[data-dragging] {
+  z-index: 5;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(22 23 27 / 0.14);
+  background: var(--surface);
+}
+
+.blocks > li:hover > .grip,
+.blocks > li:focus-within > .grip {
+  opacity: 0.9;
+}
+
+.block > .grip {
+  margin-top: 0.12rem;
+}
+
+.block-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.16rem 0;
+  min-height: 1.9rem;
+}
+
+.block-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.block-view {
+  cursor: text;
+  display: inline;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.block-view[data-empty] {
+  color: var(--graphite);
+  opacity: 0.6;
+}
+
+.block-input {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+  field-sizing: content;
+  min-height: 1.5em;
+  font-size: max(16px, 1em);
+}
+
+.block-input::placeholder {
+  color: var(--graphite);
+  opacity: 0.6;
+}
+
+.marker {
+  flex: none;
+  min-width: 0.9rem;
+  color: var(--graphite);
+  text-align: center;
+}
+
+.marker.num {
+  min-width: 1.3rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  text-align: right;
+}
+
+.tri {
+  flex: none;
+  width: 1rem;
+  color: var(--graphite);
+  font-size: 0.8rem;
+  transition: transform 0.2s var(--ease);
+}
+
+.tri[data-open] {
+  transform: rotate(90deg);
+}
+
+.block[data-type="toggle"] .block-text,
+.block[data-type="heading"] .block-text {
+  font-weight: 500;
+}
+
+.block[data-type="heading"] .block-line {
+  padding-top: 0.6rem;
+  font-size: 1.08rem;
+}
+
+/* A top-level part: the row with its number, name and chevron. */
+.block[data-part] {
+  border-top: 1px solid var(--hairline);
+  margin-top: 0.35rem;
+}
+
+.blocks > .block[data-part]:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
+
+.block[data-part] > .grip {
+  margin-top: 0.95rem;
+}
+
+.block[data-part] .block-line {
+  min-height: 3rem;
+  padding: 0.8rem 0;
+  gap: 0.9rem;
+  font-size: 1.02rem;
+}
+
+.block[data-part] .step-num {
+  text-align: left;
+}
+
+/* Lines inside a part line up under its name. */
+.blocks > li:not([data-part]) {
+  padding-left: calc(var(--depth, 0) * 1.6rem + 0.9rem);
+}
+
+.add-block {
+  margin-top: 1rem;
+  padding: 0.5rem 0;
+  color: var(--graphite);
+}
+
+.add-block:hover {
+  color: var(--ink);
+}
+
+/* @ tag list */
+.picker {
+  position: relative;
+  z-index: 10;
+  margin: 0.25rem 0 0.5rem;
+  max-width: 320px;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(22 23 27 / 0.12);
+  padding: 0.3rem;
+}
+
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border-radius: 5px;
+  font-weight: 400;
+}
+
+.picker-item[aria-selected="true"],
+.picker-item:hover {
+  background: var(--paper-2);
+}
+
+.picker-kind {
+  flex: none;
+  width: 5.5rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--graphite);
+}
+
+.picker-empty {
+  padding: 0.45rem 0.55rem;
+  color: var(--graphite);
+  font-size: 0.88rem;
+}
+
+/* Phone toolbar above the keyboard, in place of the Claude bar while typing. */
+.kb-bar {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .kb-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.35rem max(0.5rem, env(safe-area-inset-left, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--hairline);
+    overflow-x: auto;
+  }
+
+  body[data-editing] .ask {
+    display: none;
+  }
+}
+
+.kb-key {
+  flex: none;
+  min-width: 2.6rem;
+  height: 2.4rem;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.kb-key[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.kb-done {
+  margin-left: auto;
+  padding: 0 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}

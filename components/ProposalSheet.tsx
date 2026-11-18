@@ -14,7 +14,7 @@ function diff(before: Operation, after: Proposal, consultants: Consultant[]): Gr
   const named = (c: Content, it: { kit: string | null; technique: string | null; consultant: string | null }) =>
     [c.kits.find((k) => k.id === it.kit)?.name, c.techniques.find((t) => t.id === it.technique)?.name, people.find((p) => p.id === it.consultant)?.name]
       .filter(Boolean)
-      .map((n) => ` [${n}]`)
+      .map((n) => ` @${n}`)
       .join("");
 
   const compare = (title: string, oldLines: string[], newLines: string[]) => {
@@ -27,16 +27,20 @@ function diff(before: Operation, after: Proposal, consultants: Consultant[]): Gr
     if (lines.length) groups.push({ title, lines });
   };
 
-  const titles = [...new Set([...b.sections.map((s) => s.title), ...a.sections.map((s) => s.title)])];
-  for (const t of titles) {
-    const os = a.sections.find((s) => s.title === t);
-    const ns = b.sections.find((s) => s.title === t);
-    compare(
-      t,
-      os?.items.map((i) => i.text + named(a, i)) ?? [],
-      ns?.items.map((i) => i.text + named(b, i)) ?? [],
-    );
-  }
+  // Steps: each block under the part it sits in; a block that moved part shows as removed and added.
+  const byPart = (c: Content) => {
+    const parts = new Map<string, string[]>();
+    let part = "Steps";
+    for (const blk of c.blocks) {
+      if (blk.depth === 0) part = blk.type === "toggle" || blk.type === "heading" ? blk.text || "Untitled part" : "Steps";
+      const line = `${"  ".repeat(blk.depth)}${blk.text}${named(c, blk)}`;
+      parts.set(part, [...(parts.get(part) ?? []), line]);
+    }
+    return parts;
+  };
+  const pa = byPart(a);
+  const pb = byPart(b);
+  for (const t of [...new Set([...pb.keys(), ...pa.keys()])]) compare(t, pa.get(t) ?? [], pb.get(t) ?? []);
   compare("Videos", a.videos.map((v) => `${v.title} · ${v.url}`), b.videos.map((v) => `${v.title} · ${v.url}`));
   compare("Links", a.links.map((l) => `${l.title} · ${l.url}`), b.links.map((l) => `${l.title} · ${l.url}`));
   compare("Kits", a.kits.map((k) => `${k.name}${k.url ? ` · ${k.url}` : ""}`), b.kits.map((k) => `${k.name}${k.url ? ` · ${k.url}` : ""}`));

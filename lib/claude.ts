@@ -46,24 +46,17 @@ const PROPOSE_TOOL: BetaToolUnion = {
     new_consultants: list(obj({ id: s, name: s }), "Consultants not yet in the list that this change mentions. Give each a new id and use it on items."),
     kits: list(obj({ id: s, name: s, maker: s, url: { type: "string", description: "Op tech link, or empty." } })),
     techniques: list(obj({ id: s, name: s }), "e.g. Conventional, Robotic (Mako). Only when steps differ by technique."),
-    sections: list(
+    blocks: list(
       obj({
         id: s,
-        title: s,
-        depth: { type: "integer", description: "0 for a main part, 1 for a sub-part of the main part above it" },
-        items: list(
-          obj({
-            id: s,
-            text: { type: "string", description: "One short line. **bold** and *italic* allowed." },
-            list: { type: "string", enum: ["bullet", "number"] },
-            depth: { type: "integer", description: "0, 1 or 2" },
-            kit: { ...sOrNull, description: "A kit id if this line applies only to that kit" },
-            technique: { ...sOrNull, description: "A technique id if only for that technique" },
-            consultant: { ...sOrNull, description: "A consultant id if only for that consultant" },
-          }),
-        ),
+        type: { type: "string", enum: ["toggle", "heading", "bullet", "number", "text"] },
+        text: { type: "string", description: "Short. **bold** and *italic* allowed." },
+        depth: { type: "integer", description: "Nesting: 0 at the top, or at most one more than the block above it." },
+        kit: { ...sOrNull, description: "A kit id if this block (and everything nested in it) applies only to that kit" },
+        technique: { ...sOrNull, description: "A technique (mode) id if only for that technique" },
+        consultant: { ...sOrNull, description: "A consultant id if only for that consultant" },
       }),
-      "The steps of the operation in the order they happen.",
+      "The steps of the operation as blocks in reading order.",
     ),
     videos: list(obj({ id: s, title: s, url: s, source: s, note: s, group: { type: "string", enum: ["full", "other"] } })),
     links: list(obj({ id: s, title: s, url: s, source: s, note: s })),
@@ -72,14 +65,14 @@ const PROPOSE_TOOL: BetaToolUnion = {
 };
 
 const SYSTEM = `You keep a UK trauma & orthopaedic surgeon's personal notes on operations. Each operation is one page:
-- sections: the parts of the operation in the order they happen (e.g. Pre-op & huddle, Position & draping, Approach, then the operation's own steps, Closure, Post-op). A section with depth 1 is a sub-part of the main part above it (e.g. Procedure › Insert guide wire). Each holds short lines (bullets or numbered, up to 2 levels deep).
-- A line can be marked for one kit, one technique (e.g. robotic vs conventional) or one consultant, and then only shows when that one is chosen. Lines that apply to everyone have no marker.
+- blocks: the steps, Notion-style, as a flat list in reading order. depth nests a block inside the nearest shallower block above it. Top-level toggles (type "toggle", depth 0) are the parts of the operation in the order they happen (e.g. Pre-op & huddle, Position & draping, Approach, then the operation's own steps, Closure, Post-op), with bullet or numbered blocks nested inside them (depth 1, deeper for sub-points). A toggle nested in a part is a sub-part (e.g. Procedure › Insert guide wire).
+- Any block can be tagged for one kit, one technique (mode, e.g. robotic vs conventional) or one consultant; it and everything nested in it then show only when that one is chosen. Tag a whole part by tagging its toggle. Blocks that apply to everyone have no tag.
 - kits: implant systems used for this operation, each with its op tech link.
 - videos (group "full" for the operation being performed, "other" for anything else), links (AO Surgery Reference, approaches, op note templates…), questions: the knowledge relevant to this case, as questions a consultant would ask, with answers.
 
 Apply the surgeon's instruction to the page and submit the whole page with propose_page.
 - Change only what the instruction asks. Keep every other id, line and wording exactly as it is.
-- File each learning in the right section, at the right point in the order, in the surgeon's own terse style. Use British spelling.
+- File each learning in the right part, at the right point in the order, in the surgeon's own terse style. Use British spelling.
 - If a learning applies to one kit, technique or consultant, mark it with that id. Add a kit, technique or consultant if it doesn't exist yet. New things get new ids: 8 random lowercase letters and digits.
 - Don't merge, reword or tidy lines you weren't asked to touch.
 - Search the web only when asked for videos, links or op techs, and only use URLs that appeared in your search results. Never write a URL from memory.
@@ -96,7 +89,7 @@ type ProposeInput = {
   new_consultants: Consultant[];
   kits: unknown;
   techniques: unknown;
-  sections: unknown;
+  blocks: unknown;
   videos: unknown;
   links: unknown;
   questions: unknown;

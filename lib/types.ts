@@ -1,18 +1,20 @@
-export type ListStyle = "bullet" | "number";
+export type BlockType = "text" | "bullet" | "number" | "toggle" | "heading";
 
-/** One line in a step. A kit, technique or consultant makes it show only when that one is chosen. */
-export type Item = {
+/**
+ * One block of the steps, Notion-style. The steps are a flat list in reading order; depth nests a
+ * block inside the nearest shallower block above it. A toggle at depth 0 is a part of the operation.
+ * A kit, mode (technique) or consultant tag makes the block, and everything nested in it, show only
+ * when that one is chosen.
+ */
+export type Block = {
   id: string;
+  type: BlockType;
   text: string;
-  list: ListStyle;
-  depth: number; // 0–2
+  depth: number;
   kit: string | null;
   technique: string | null;
   consultant: string | null;
 };
-
-/** A part of the operation. depth 1 makes it a sub-part of the part above. */
-export type Section = { id: string; title: string; depth: number; items: Item[] };
 export type Kit = { id: string; name: string; maker: string; url: string };
 export type Technique = { id: string; name: string };
 export type VideoGroup = "full" | "other";
@@ -23,7 +25,7 @@ export type Question = { id: string; q: string; a: string };
 export type Content = {
   kits: Kit[];
   techniques: Technique[];
-  sections: Section[];
+  blocks: Block[];
   videos: Video[];
   links: Link[];
   questions: Question[];

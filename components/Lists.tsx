@@ -234,7 +234,7 @@ export function KitSheet({ kit, update, onClose }: { kit: Kit; update: Update; o
             update((c) => ({
               ...c,
               kits: c.kits.filter((k) => k.id !== kit.id),
-              sections: c.sections.map((s) => ({ ...s, items: s.items.map((it) => (it.kit === kit.id ? { ...it, kit: null } : it)) })),
+              blocks: c.blocks.map((b) => (b.kit === kit.id ? { ...b, kit: null } : b)),
             }));
             onClose();
           }}

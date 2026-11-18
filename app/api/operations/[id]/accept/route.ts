@@ -10,9 +10,7 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!p?.operation?.content) return Response.json({ error: "Nothing to save" }, { status: 400 });
   try {
     const ids = await addConsultants(p.newConsultants ?? []);
-    for (const s of p.operation.content.sections) {
-      for (const it of s.items) if (it.consultant && ids.has(it.consultant)) it.consultant = ids.get(it.consultant)!;
-    }
+    for (const b of p.operation.content.blocks) if (b.consultant && ids.has(b.consultant)) b.consultant = ids.get(b.consultant)!;
     const operation = await saveOperation((await params).id, p.operation, "ai", body?.instruction ?? "");
     return Response.json({ operation, consultants: await listConsultants() });
   } catch (err) {

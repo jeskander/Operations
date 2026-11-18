@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { REGIONS, newId, visible } from "@/lib/content";
+import { REGIONS, newId } from "@/lib/content";
+import { visibleBlocks } from "@/lib/blocks";
 import type { Consultant, Content, Filters, Operation, OperationFields } from "@/lib/types";
 import Editable from "./Editable";
 import { KitSheet, Knowledge, Links, OpTech, Videos, type Update } from "./Lists";
@@ -48,7 +49,7 @@ export default function OperationPage(p: Props) {
   const setField = (k: "name" | "subtitle" | "region", v: string) => p.change((f) => ({ ...f, [k]: v }));
 
   const counts: Record<Tab, number> = {
-    steps: c.sections.filter((s) => s.items.some((i) => visible(i, filters))).length,
+    steps: visibleBlocks(c.blocks, filters, new Set()).filter((b) => b.depth === 0 && b.type === "toggle").length,
     videos: c.videos.length,
     links: c.links.length,
     optech: c.kits.length,
@@ -67,7 +68,7 @@ export default function OperationPage(p: Props) {
   };
   const clearRefs = (key: "technique" | "consultant", id: string) => (x: Content): Content => ({
     ...x,
-    sections: x.sections.map((s) => ({ ...s, items: s.items.map((it) => (it[key] === id ? { ...it, [key]: null } : it)) })),
+    blocks: x.blocks.map((b) => (b[key] === id ? { ...b, [key]: null } : b)),
   });
 
   const kit = manage?.kind === "kit" ? c.kits.find((k) => k.id === manage.id) : undefined;
@@ -145,7 +146,7 @@ export default function OperationPage(p: Props) {
       </header>
 
       <section className="panel">
-        {tab === "steps" && <Steps opId={op.id} content={c} consultants={consultants} filters={filters} update={update} />}
+        {tab === "steps" && <Steps opId={op.id} content={c} consultants={consultants} filters={filters} update={update} addConsultant={p.addConsultant} />}
         {tab === "videos" && <Videos content={c} update={update} />}
         {tab === "links" && <Links content={c} update={update} />}
         {tab === "optech" && <OpTech content={c} update={update} />}
@@ -211,7 +212,7 @@ export default function OperationPage(p: Props) {
           }}
         >
           <p className="hint">
-            Tap any text to change it. Hold ⋮⋮ and drag to move a line or part; tap ⋮⋮ for its options. Tap a selected kit, mode or consultant to rename or remove it.
+            Tap any text to change it. Like Notion: type &gt; space for a part, - space for a bullet, 1. space for a numbered list, # space for a heading, and @ to tag a block with a kit, mode or consultant. Enter adds a block, Tab and Shift+Tab nest and un-nest, Backspace at the start turns a block back into text. Hold ⋮⋮ and drag to move a block with everything inside it; tap ⋮⋮ for its menu. Tap a selected chip at the top to rename or remove it.
           </p>
           <div className="sheet-actions">
             {confirmDelete ? (

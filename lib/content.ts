@@ -1,4 +1,5 @@
-import type { Content, Filters, Item, ListStyle, Operation, Section } from "./types";
+import { fixDepths } from "./blocks";
+import type { Block, BlockType, Content, Operation } from "./types";
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -9,7 +10,7 @@ export const DEFAULT_SECTIONS = ["Pre-op & huddle", "Position & draping", "Appro
 export const emptyContent = (): Content => ({
   kits: [],
   techniques: [],
-  sections: DEFAULT_SECTIONS.map((title) => ({ id: newId(), title, depth: 0, items: [] })),
+  blocks: DEFAULT_SECTIONS.map((text) => ({ id: newId(), type: "toggle" as const, text, depth: 0, kit: null, technique: null, consultant: null })),
   videos: [],
   links: [],
   questions: [],
@@ -26,20 +27,7 @@ export function normalize(raw: unknown): Content {
   return {
     kits: arr(c.kits).map((k) => ({ id: id(k.id), name: str(k.name), maker: str(k.maker), url: str(k.url) })),
     techniques: arr(c.techniques).map((t) => ({ id: id(t.id), name: str(t.name) })),
-    sections: arr(c.sections).map((s) => ({
-      id: id(s.id),
-      title: str(s.title),
-      depth: Number(s.depth) === 1 ? 1 : 0,
-      items: arr(s.items).map((i) => ({
-        id: id(i.id),
-        text: str(i.text),
-        list: (i.list === "number" ? "number" : "bullet") as ListStyle,
-        depth: Math.max(0, Math.min(2, Number(i.depth) || 0)),
-        kit: strOrNull(i.kit),
-        technique: strOrNull(i.technique),
-        consultant: strOrNull(i.consultant),
-      })),
-    })),
+    blocks: Array.isArray(c.blocks) ? normalizeBlocks(arr(c.blocks)) : fromSections(arr(c.sections)),
     videos: arr(c.videos).map((v) => ({
       id: id(v.id),
       title: str(v.title),
@@ -53,12 +41,33 @@ export function normalize(raw: unknown): Content {
   };
 }
 
-/** Whether an item shows under the chosen kit, technique and consultant. Blank filters show everything. */
-export function visible(item: Item, f: Filters): boolean {
-  if (item.kit && f.kit && item.kit !== f.kit) return false;
-  if (item.technique && f.technique && item.technique !== f.technique) return false;
-  if (item.consultant && f.consultant && item.consultant !== f.consultant) return false;
-  return true;
+const TYPES: BlockType[] = ["text", "bullet", "number", "toggle", "heading"];
+
+function normalizeBlocks(raw: Record<string, unknown>[]): Block[] {
+  return fixDepths(
+    raw.map((b) => ({
+      id: id(b.id),
+      type: TYPES.includes(b.type as BlockType) ? (b.type as BlockType) : "text",
+      text: str(b.text),
+      depth: Math.max(0, Math.floor(Number(b.depth) || 0)),
+      kit: strOrNull(b.kit),
+      technique: strOrNull(b.technique),
+      consultant: strOrNull(b.consultant),
+    })),
+  );
+}
+
+/** Pages saved before blocks: each part becomes a toggle, its lines the blocks inside it. */
+function fromSections(sections: Record<string, unknown>[]): Block[] {
+  return normalizeBlocks(
+    sections.flatMap((s) => {
+      const base = Number(s.depth) === 1 ? 1 : 0;
+      return [
+        { id: s.id, type: "toggle", text: s.title, depth: base },
+        ...arr(s.items).map((i) => ({ ...i, type: i.list === "number" ? "number" : "bullet", depth: base + 1 + (Number(i.depth) || 0) })),
+      ];
+    }),
+  );
 }
 
 /** Everything searchable about an operation, lower-cased. */
@@ -70,7 +79,7 @@ export function searchText(op: Operation): string {
     op.subtitle,
     ...c.kits.map((k) => `${k.name} ${k.maker}`),
     ...c.techniques.map((t) => t.name),
-    ...c.sections.flatMap((s: Section) => [s.title, ...s.items.map((i) => i.text)]),
+    ...c.blocks.map((b) => b.text),
     ...c.videos.map((v) => `${v.title} ${v.source} ${v.note}`),
     ...c.links.map((l) => `${l.title} ${l.source} ${l.note}`),
     ...c.questions.map((q) => `${q.q} ${q.a}`),
@@ -85,7 +94,7 @@ export function matchLine(op: Operation, q: string): string | null {
   if (op.name.toLowerCase().includes(needle)) return null;
   const c = op.content;
   const lines = [
-    ...c.sections.flatMap((s) => s.items.map((i) => `${s.title}: ${i.text}`)),
+    ...c.blocks.map((b) => b.text),
     ...c.questions.map((x) => `Q: ${x.q}`),
     ...c.videos.map((v) => `Video: ${v.title}`),
     ...c.links.map((l) => `Link: ${l.title}`),
