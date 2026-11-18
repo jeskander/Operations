@@ -47,3 +47,15 @@ export type Consultant = { id: string; name: string };
 export type Filters = { kit: string; technique: string; consultant: string };
 
 export type Proposal = { summary: string[]; operation: OperationFields; newConsultants: Consultant[] };
+
+export type Priority = "P1" | "P2" | "P3";
+export type Feedback = { id: string; text: string; priority: Priority; createdAt: string; doneAt: string | null };
+
+export type Settings = {
+  /** Added to every request to Claude. */
+  instructions: string;
+  /** The parts a new operation starts with. */
+  parts: string[];
+  /** The groups operations are filed under, in order. */
+  groups: string[];
+};

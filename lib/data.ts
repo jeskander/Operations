@@ -1,7 +1,7 @@
 import "server-only";
-import { emptyContent, normalize } from "./content";
+import { DEFAULT_SECTIONS, REGIONS, emptyContent, normalize } from "./content";
 import { supabase } from "./supabase";
-import type { Consultant, Operation, OperationFields } from "./types";
+import type { Consultant, Feedback, Operation, OperationFields, Priority, Settings } from "./types";
 
 type Row = { id: string; name: string; region: string; subtitle: string; content: unknown; updated_at: string };
 
@@ -31,7 +31,7 @@ export async function getOperation(id: string): Promise<Operation | null> {
 export async function createOperation(name: string, region: string): Promise<Operation> {
   const { data, error } = await supabase()
     .from("op_operations")
-    .insert({ name, region, content: emptyContent() })
+    .insert({ name, region, content: emptyContent((await getSettings()).parts) })
     .select(COLS)
     .single();
   if (error) throw new Error(error.message);
@@ -138,3 +138,61 @@ export async function addConsultants(list: Consultant[]): Promise<Map<string, st
 }
 
 const isUuid = (s: string) => /^[0-9a-f-]{36}$/i.test(s);
+
+// ---------- Feedback ----------
+
+type FeedbackRow = { id: string; created_at: string; text: string; priority: Priority; done_at: string | null };
+const toFeedback = (r: FeedbackRow): Feedback => ({ id: r.id, text: r.text, priority: r.priority, createdAt: r.created_at, doneAt: r.done_at });
+
+export async function listFeedback(): Promise<Feedback[]> {
+  const { data, error } = await supabase().from("op_feedback").select("*").order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data as FeedbackRow[]).map(toFeedback);
+}
+
+export async function addFeedback(text: string, priority: Priority): Promise<Feedback> {
+  const { data, error } = await supabase().from("op_feedback").insert({ text, priority }).select("*").single();
+  if (error) throw new Error(error.message);
+  return toFeedback(data as FeedbackRow);
+}
+
+export async function updateFeedback(id: string, patch: { text?: string; priority?: Priority; done?: boolean }) {
+  const row: Record<string, unknown> = {};
+  if (patch.text !== undefined) row.text = patch.text;
+  if (patch.priority) row.priority = patch.priority;
+  if (patch.done !== undefined) row.done_at = patch.done ? new Date().toISOString() : null;
+  const { error } = await supabase().from("op_feedback").update(row).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteFeedback(id: string) {
+  const { error } = await supabase().from("op_feedback").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// ---------- Settings ----------
+
+export const DEFAULT_SETTINGS: Settings = { instructions: "", parts: DEFAULT_SECTIONS, groups: REGIONS };
+
+export async function getSettings(): Promise<Settings> {
+  const { data, error } = await supabase().from("op_settings").select("key, value");
+  if (error) throw new Error(error.message);
+  const map = new Map((data as { key: string; value: unknown }[]).map((r) => [r.key, r.value]));
+  const list = (v: unknown, fallback: string[]) => (Array.isArray(v) && v.length ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : fallback);
+  return {
+    instructions: typeof map.get("instructions") === "string" ? (map.get("instructions") as string) : "",
+    parts: list(map.get("parts"), DEFAULT_SETTINGS.parts),
+    groups: list(map.get("groups"), DEFAULT_SETTINGS.groups),
+  };
+}
+
+export async function saveSettings(s: Partial<Settings>): Promise<Settings> {
+  const rows = Object.entries(s)
+    .filter(([k]) => ["instructions", "parts", "groups"].includes(k))
+    .map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }));
+  if (rows.length) {
+    const { error } = await supabase().from("op_settings").upsert(rows);
+    if (error) throw new Error(error.message);
+  }
+  return getSettings();
+}

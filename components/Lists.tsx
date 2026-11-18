@@ -121,7 +121,7 @@ export function Videos({ content, update }: { content: Content; update: Update }
     if (url) fillTitle(url, (title, source) => update((c) => ({ ...c, videos: c.videos.map((v) => (v.id === id && !v.title ? { ...v, title, source: v.source || source } : v)) })));
   };
 
-  const row = (v: Video) => <LinkRow href={v.url} title={v.title} sub={v.note} meta={v.source || hostOf(v.url)} />;
+  const row = (v: Video) => <LinkRow href={v.url} title={v.title} sub="" meta={v.source || hostOf(v.url)} />;
   const v = content.videos.find((x) => x.id === editing);
 
   return (
@@ -137,10 +137,7 @@ export function Videos({ content, update }: { content: Content; update: Update }
         <Sheet title="Video" onClose={() => setEditing(null)}>
           <Field id="v-title" label="Title" value={v.title} onChange={(title) => set(v.id, { title })} />
           <Field id="v-url" label="Link" value={v.url} url onChange={(url) => set(v.id, { url })} />
-          <div className="sheet-grid">
-            <Field id="v-source" label="Source" value={v.source} placeholder="YouTube" onChange={(source) => set(v.id, { source })} />
-            <Field id="v-note" label="Note" value={v.note} placeholder="e.g. starts at 11:10" onChange={(note) => set(v.id, { note })} />
-          </div>
+          <Field id="v-source" label="Source" value={v.source} placeholder="YouTube" onChange={(source) => set(v.id, { source })} />
           <Choice<VideoGroup>
             options={[
               { value: "full", label: "Full operation" },

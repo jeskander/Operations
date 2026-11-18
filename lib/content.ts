@@ -7,10 +7,10 @@ export const REGIONS = ["Hip", "Knee", "Foot & ankle", "Shoulder & elbow", "Hand
 
 export const DEFAULT_SECTIONS = ["Pre-op & huddle", "Position & draping", "Approach", "Procedure", "Closure", "Post-op"];
 
-export const emptyContent = (): Content => ({
+export const emptyContent = (parts: string[] = DEFAULT_SECTIONS): Content => ({
   kits: [],
   techniques: [],
-  blocks: DEFAULT_SECTIONS.map((text) => ({ id: newId(), type: "toggle" as const, text, depth: 0, kit: null, technique: null, consultant: null })),
+  blocks: parts.map((text) => ({ id: newId(), type: "toggle" as const, text, depth: 0, kit: null, technique: null, consultant: null })),
   videos: [],
   links: [],
   questions: [],

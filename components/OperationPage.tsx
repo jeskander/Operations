@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { REGIONS, newId } from "@/lib/content";
+import { newId } from "@/lib/content";
 import { visibleBlocks } from "@/lib/blocks";
 import type { Consultant, Content, Filters, Operation, OperationFields } from "@/lib/types";
 import Editable from "./Editable";
@@ -21,6 +21,8 @@ const TABS: { id: Tab; label: string }[] = [
 
 type Props = {
   op: Operation;
+  /** The groups an operation can be filed under. */
+  groups: string[];
   consultants: Consultant[];
   filters: Filters;
   setFilter: (k: keyof Filters, v: string) => void;
@@ -83,7 +85,7 @@ export default function OperationPage(p: Props) {
             ← Operations
           </button>
           <select className="region-select label" aria-label="Group" value={op.region} onChange={(e) => setField("region", e.target.value)}>
-            {[...new Set([...REGIONS, op.region])].map((r) => (
+            {[...new Set([...p.groups, op.region])].map((r) => (
               <option key={r}>{r}</option>
             ))}
           </select>

@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { REGIONS, matchLine, newId, searchText } from "@/lib/content";
-import type { Consultant, Filters, Operation, OperationFields, Proposal } from "@/lib/types";
+import { IDLE_MS } from "@/lib/auth";
+import { matchLine, newId, searchText } from "@/lib/content";
+import type { Consultant, Feedback, Filters, Operation, OperationFields, Priority, Proposal, Settings } from "@/lib/types";
 import AskBar from "./AskBar";
+import FeedbackView from "./FeedbackView";
+import SettingsView from "./SettingsView";
 import OperationPage, { type Tab } from "./OperationPage";
 import ProposalSheet from "./ProposalSheet";
 
@@ -28,12 +31,23 @@ const fieldsOf = (op: Operation): OperationFields => ({ name: op.name, region: o
 const SAVE_DELAY_MS = 700;
 const UNDO_LIMIT = 60;
 
-type View = { kind: "op"; id: string } | null;
+type View = { kind: "op"; id: string } | { kind: "feedback" } | { kind: "settings" } | null;
 
 const viewFromUrl = (): View => {
-  const id = new URLSearchParams(window.location.search).get("op");
-  return id ? { kind: "op", id } : null;
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("op")) return { kind: "op", id: q.get("op")! };
+  if (q.has("feedback")) return { kind: "feedback" };
+  if (q.has("settings")) return { kind: "settings" };
+  return null;
 };
+
+const urlOf = (v: View) => (!v ? "/" : v.kind === "op" ? `/?op=${v.id}` : `/?${v.kind}`);
+
+/** "feedback: …" in any Claude bar adds to the feedback list instead. */
+const asFeedback = (text: string) => text.match(/^\s*(?:add\s+)?feedback\s*[:\-–]\s*([\s\S]+)/i)?.[1]?.trim() ?? null;
+
+/** Ping the server at most this often while you're using the page, so reading keeps it unlocked. */
+const PING_MS = 60_000;
 
 export default function App() {
   const [ops, setOpsState] = useState<Operation[] | null>(null);
@@ -65,6 +79,8 @@ export default function App() {
   const mainRef = useRef<HTMLElement>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const undo = useRef(new Map<string, OperationFields[]>());
+  const [settings, setSettings] = useState<Settings>({ instructions: "", parts: [], groups: [] });
+  const [feedback, setFeedback] = useState<Feedback[] | null>(null);
 
   // ---------- Load ----------
 
@@ -82,13 +98,23 @@ export default function App() {
 
   useEffect(() => {
     load();
+    api<{ settings: Settings }>("/api/settings")
+      .then((r) => setSettings(r.settings))
+      .catch(() => {});
     setView(viewFromUrl());
     const onPop = () => setView(viewFromUrl());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [load]);
 
-  const op = view ? (ops?.find((o) => o.id === view.id) ?? null) : null;
+  const op = view?.kind === "op" ? (ops?.find((o) => o.id === view.id) ?? null) : null;
+
+  useEffect(() => {
+    if (view?.kind === "feedback" && !feedback)
+      api<{ feedback: Feedback[] }>("/api/feedback")
+        .then((r) => setFeedback(r.feedback))
+        .catch((e: Error) => setToast({ text: e.message }));
+  }, [view?.kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (op) setFilters(readFilters(op.id));
@@ -101,7 +127,7 @@ export default function App() {
   }, [toast]);
 
   const go = (next: View) => {
-    const url = next ? `/?op=${next.id}` : "/";
+    const url = urlOf(next);
     if (url !== window.location.pathname + window.location.search) window.history.pushState(null, "", url);
     setView(next);
     setTab("steps");
@@ -118,6 +144,50 @@ export default function App() {
     const list = opsRef.current ?? [];
     setOps(list.some((x) => x.id === o.id) ? list.map((x) => (x.id === o.id ? o : x)) : [...list, o]);
   };
+
+  // ---------- Locking after 10 minutes without use ----------
+
+  const lastUse = useRef(Date.now());
+  const lastPing = useRef(Date.now());
+  const locking = useRef(false);
+
+  const lock = useCallback(async () => {
+    if (locking.current) return;
+    locking.current = true;
+    for (const id of [...timers.current.keys()]) {
+      clearTimeout(timers.current.get(id));
+      await saveNowRef.current?.(id, true);
+    }
+    await fetch("/api/logout", { method: "POST", keepalive: true }).catch(() => {});
+    window.location.replace("/login");
+  }, []);
+
+  useEffect(() => {
+    const used = () => {
+      const now = Date.now();
+      if (now - lastUse.current > IDLE_MS) return lock(); // came back to it too late
+      lastUse.current = now;
+      if (now - lastPing.current > PING_MS) {
+        lastPing.current = now;
+        fetch("/api/ping", { method: "POST" }).then((r) => {
+          if (r.status === 401) lock();
+        }, () => {});
+      }
+    };
+    const check = () => {
+      if (Date.now() - lastUse.current > IDLE_MS) lock();
+    };
+    const onVisible = () => document.visibilityState === "visible" && check();
+    const events = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
+    for (const e of events) window.addEventListener(e, used, { capture: true, passive: true });
+    document.addEventListener("visibilitychange", onVisible);
+    const t = setInterval(check, 15_000);
+    return () => {
+      for (const e of events) window.removeEventListener(e, used, { capture: true });
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(t);
+    };
+  }, [lock]);
 
   // ---------- Saving: every change saves itself shortly after ----------
 
@@ -140,6 +210,9 @@ export default function App() {
       setToast({ text: `Not saved: ${(e as Error).message}` });
     }
   }, []);
+
+  const saveNowRef = useRef(saveNow);
+  saveNowRef.current = saveNow;
 
   const scheduleSave = (id: string) => {
     clearTimeout(timers.current.get(id));
@@ -202,9 +275,9 @@ export default function App() {
     const shown = q ? ops.filter((o) => q.split(/\s+/).every((w) => searchText(o).includes(w))) : ops;
     const byRegion = new Map<string, Operation[]>();
     for (const o of [...shown].sort((a, b) => a.name.localeCompare(b.name))) byRegion.set(o.region, [...(byRegion.get(o.region) ?? []), o]);
-    const order = (r: string) => (REGIONS.indexOf(r) === -1 ? 99 : REGIONS.indexOf(r));
+    const order = (r: string) => (settings.groups.indexOf(r) === -1 ? 99 : settings.groups.indexOf(r));
     return [...byRegion.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0].localeCompare(b[0]));
-  }, [ops, query]);
+  }, [ops, query, settings.groups]);
 
   const create = async () => {
     if (!creating?.name.trim()) return;
@@ -233,7 +306,35 @@ export default function App() {
   };
 
   /** From the home screen: find the operation, open it, then make the change there. */
+  // ---------- Feedback ----------
+
+  const addFeedback = async (text: string, priority: Priority = "P2") => {
+    try {
+      const r = await api<{ item: Feedback }>("/api/feedback", { method: "POST", body: { text, priority } });
+      setFeedback((f) => (f ? [r.item, ...f] : f));
+      setToast({ text: "Added to feedback" });
+    } catch (e) {
+      setToast({ text: (e as Error).message });
+    }
+  };
+  const updateFeedback = (id: string, patch: { priority?: Priority; done?: boolean; text?: string }) => {
+    setFeedback((f) =>
+      f?.map((x) =>
+        x.id === id
+          ? { ...x, ...(patch.text !== undefined ? { text: patch.text } : {}), ...(patch.priority ? { priority: patch.priority } : {}), ...(patch.done !== undefined ? { doneAt: patch.done ? new Date().toISOString() : null } : {}) }
+          : x,
+      ) ?? null,
+    );
+    api(`/api/feedback/${id}`, { method: "PATCH", body: patch }).catch((e: Error) => setToast({ text: e.message }));
+  };
+  const deleteFeedback = (id: string) => {
+    setFeedback((f) => f?.filter((x) => x.id !== id) ?? null);
+    api(`/api/feedback/${id}`, { method: "DELETE" }).catch((e: Error) => setToast({ text: e.message }));
+  };
+
   const fileFromHome = async (text: string) => {
+    const fb = asFeedback(text);
+    if (fb) return addFeedback(fb);
     setAi({ busy: true, note: "Finding the operation…", error: false, where: "home" });
     try {
       const r = await api<{ operationId: string | null; newName: string | null; region: string | null }>("/api/route-learning", {
@@ -324,9 +425,9 @@ export default function App() {
     });
   };
 
-  const signOut = async () => {
-    await fetch("/api/logout", { method: "POST" });
-    window.location.href = "/login";
+  const saveSettings = async (s: Settings) => {
+    const r = await api<{ settings: Settings }>("/api/settings", { method: "PUT", body: s });
+    setSettings(r.settings);
   };
 
   const proposalOp = proposal ? ops?.find((o) => o.id === proposal.opId) : null;
@@ -348,7 +449,7 @@ export default function App() {
           >
             <input id="new-name" className="input" placeholder="Operation name" autoFocus value={creating.name} onChange={(e) => setCreating({ ...creating, name: e.target.value })} />
             <select id="new-region" className="select" value={creating.region} onChange={(e) => setCreating({ ...creating, region: e.target.value })}>
-              {REGIONS.map((r) => (
+              {settings.groups.map((r) => (
                 <option key={r}>{r}</option>
               ))}
             </select>
@@ -362,7 +463,7 @@ export default function App() {
             </div>
           </form>
         ) : (
-          <button className="new-op" onClick={() => setCreating({ name: query.trim(), region: "Knee" })}>
+          <button className="new-op" onClick={() => setCreating({ name: query.trim(), region: settings.groups[0] ?? "Other" })}>
             <span className="plus">+</span> New operation
           </button>
         )}
@@ -377,7 +478,7 @@ export default function App() {
               {list.map((o) => {
                 const hit = query.trim() ? matchLine(o, query.trim()) : null;
                 return (
-                  <button key={o.id} className="op-row" aria-current={view?.id === o.id ? true : undefined} onClick={() => go({ kind: "op", id: o.id })}>
+                  <button key={o.id} className="op-row" aria-current={view?.kind === "op" && view.id === o.id ? true : undefined} onClick={() => go({ kind: "op", id: o.id })}>
                     <span className="op-name">{o.name}</span>
                     {(hit || o.subtitle) && <span className="op-sub">{hit ?? o.subtitle}</span>}
                   </button>
@@ -389,14 +490,36 @@ export default function App() {
 
         <AskBar placeholder="Add a learning to any operation…" busy={ai.busy && ai.where === "home"} note={ai.where === "home" ? ai.note : null} error={ai.error} onSend={fileFromHome} />
         <div className="sidebar-foot">
-          <button className="mono-btn" onClick={signOut}>
-            Sign out
+          <button className="mono-btn" aria-current={view?.kind === "feedback" || undefined} onClick={() => go({ kind: "feedback" })}>
+            Feedback
+          </button>
+          <button className="mono-btn" aria-current={view?.kind === "settings" || undefined} onClick={() => go({ kind: "settings" })}>
+            Settings
+          </button>
+          <button className="mono-btn" onClick={lock}>
+            Lock
           </button>
         </div>
       </aside>
 
       <main className="main" ref={mainRef}>
-        {view && !op && (
+        {view?.kind === "feedback" && <FeedbackView items={feedback} onAdd={addFeedback} onUpdate={updateFeedback} onDelete={deleteFeedback} onBack={back} />}
+
+        {view?.kind === "settings" && (
+          <SettingsView
+            key={JSON.stringify(settings) + consultants.length}
+            settings={settings}
+            consultants={consultants}
+            onSave={saveSettings}
+            onSaveConsultants={async (list) => {
+              await putConsultants(list);
+            }}
+            onLock={lock}
+            onBack={back}
+          />
+        )}
+
+        {view?.kind === "op" && !op && (
           <div className="home">
             <div>
               <button className="back" onClick={back}>
@@ -413,6 +536,7 @@ export default function App() {
           <>
             <OperationPage
               op={op}
+              groups={settings.groups}
               consultants={consultants}
               filters={filters}
               setFilter={setFilter}
@@ -433,7 +557,11 @@ export default function App() {
               busy={ai.busy && ai.where === "op"}
               note={ai.where === "op" ? ai.note : null}
               error={ai.error}
-              onSend={(text) => propose(op, text)}
+              onSend={(text) => {
+                const fb = asFeedback(text);
+                if (fb) addFeedback(fb);
+                else propose(op, text);
+              }}
             />
           </>
         )}

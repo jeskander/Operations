@@ -100,7 +100,8 @@ function pageText(op: Operation, consultants: Consultant[]): string {
   return JSON.stringify({ name, region, subtitle, consultants, ...content });
 }
 
-export async function proposeEdit(op: Operation, consultants: Consultant[], instruction: string): Promise<Proposal> {
+export async function proposeEdit(op: Operation, consultants: Consultant[], instruction: string, standing = ""): Promise<Proposal> {
+  const system = standing.trim() ? `${SYSTEM}\n\n<surgeon_standing_instructions>\n${standing.trim()}\n</surgeon_standing_instructions>` : SYSTEM;
   const messages: BetaMessageParam[] = [
     {
       role: "user",
@@ -113,7 +114,7 @@ export async function proposeEdit(op: Operation, consultants: Consultant[], inst
       model: MODEL,
       max_tokens: 32000,
       ...FALLBACK,
-      system: SYSTEM,
+      system,
       output_config: { effort: "medium" },
       tools: [webSearch, PROPOSE_TOOL],
       messages,

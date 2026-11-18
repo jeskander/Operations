@@ -1837,3 +1837,108 @@ details[open] > summary .chev {
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+
+/* ---------- Feedback (as in Theatres) ---------- */
+
+.priority {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.1rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--p-hue, var(--graphite));
+  background: var(--p-tint, var(--paper-2));
+  border: 1px solid color-mix(in srgb, var(--p-hue, var(--hairline)) 30%, transparent);
+}
+.priority[data-priority="P1"] { --p-hue: var(--rose); --p-tint: var(--rose-tint); }
+.priority[data-priority="P2"] { --p-hue: var(--amber); --p-tint: var(--amber-tint); }
+
+.priority-picker {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.priority-picker .priority[aria-checked="false"] {
+  opacity: 0.45;
+}
+
+.feedback-add {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.feedback-add-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.feedback-list {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.feedback-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: start;
+  gap: 0.8rem;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.feedback-check {
+  margin-top: 0.3rem;
+  accent-color: var(--sage);
+}
+
+.feedback-body {
+  min-width: 0;
+}
+
+.feedback-item[data-done] .feedback-body {
+  color: var(--graphite);
+  text-decoration: line-through;
+}
+
+.feedback-done {
+  margin-top: 1.5rem;
+}
+
+.feedback-done summary {
+  cursor: pointer;
+}
+
+.panel.feedback,
+.panel.settings {
+  padding-left: var(--gutter);
+}
+
+/* ---------- Settings ---------- */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-foot .mono-btn[aria-current] {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+
+.login .hint {
+  margin-top: -0.6rem;
+}

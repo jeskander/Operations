@@ -17,6 +17,10 @@ Or type or dictate into the bar at the bottom and Claude shows its change (what 
 
 Search matches every word anywhere on every page.
 
+**Feedback** keeps a P1–P3 checklist of changes to the app, as in Theatres; "feedback: …" in any Claude bar adds to it. **Settings** holds Claude's standing instructions (added to every change), the parts a new operation starts with, the groups on the home screen, and the consultants.
+
+**Locking.** Type the password and press Enter. The app locks after 10 minutes without use and when the browser closes. The password is never stored: the sign-in field has no form and is marked for browsers and password managers to skip, and the cookie holds only a signed time of last use, which the server refuses once it's 10 minutes old. Pages and data are sent with `Cache-Control: no-store`.
+
 ## Run
 
 ```bash
@@ -30,6 +34,6 @@ npm run dev
 | `ANTHROPIC_API_KEY` | Claude API key |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SECRET_KEY` | Supabase secret (service role) key. Server only. |
-| `APP_PASSWORD` | Password for signing in. Sign-in lasts a year and renews with use. |
+| `APP_PASSWORD` | Password for signing in. |
 
 The schema is in `supabase/migrations/`. Tables are prefixed `op_`, share the Theatres Supabase project, and have row-level security on with no policies: only the server reads or writes. Every save keeps the previous version in `op_revisions`.
