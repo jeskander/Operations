@@ -1,4 +1,5 @@
 import { fixDepths } from "./blocks";
+import { cleanNote, noteLines } from "./note";
 import type { Block, BlockType, Content, Operation } from "./types";
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
@@ -14,6 +15,7 @@ export const emptyContent = (parts: string[] = DEFAULT_SECTIONS): Content => ({
   videos: [],
   links: [],
   questions: [],
+  note: "",
 });
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -38,6 +40,7 @@ export function normalize(raw: unknown): Content {
     })),
     links: arr(c.links).map((l) => ({ id: id(l.id), title: str(l.title), url: str(l.url), source: str(l.source), note: str(l.note) })),
     questions: arr(c.questions).map((q) => ({ id: id(q.id), q: str(q.q), a: str(q.a) })),
+    note: cleanNote(str(c.note)),
   };
 }
 
@@ -86,6 +89,7 @@ export function searchText(op: Operation): string {
     ...c.videos.map((v) => `${v.title} ${v.source} ${v.note}`),
     ...c.links.map((l) => `${l.title} ${l.source} ${l.note}`),
     ...c.questions.map((q) => `${q.q} ${q.a}`),
+    ...noteLines(c.note),
   ]
     .join("\n")
     .toLowerCase();
@@ -97,6 +101,7 @@ export function matchLine(op: Operation, q: string): string | null {
   if (op.name.toLowerCase().includes(needle)) return null;
   const c = op.content;
   const lines = [
+    ...noteLines(c.note),
     ...c.blocks.map((b) => b.text),
     ...c.questions.map((x) => `Q: ${x.q}`),
     ...c.videos.map((v) => `Video: ${v.title}`),

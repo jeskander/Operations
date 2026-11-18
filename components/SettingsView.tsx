@@ -14,11 +14,13 @@ type Props = {
   onBack: () => void;
   dark: boolean;
   onDark: (on: boolean) => void;
+  mode: "simple" | "full";
+  onMode: (m: "simple" | "full") => void;
 };
 
 const toLines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
 
-export default function SettingsView({ settings, consultants, onSave, onSaveConsultants, onLock, onBack, dark, onDark }: Props) {
+export default function SettingsView({ settings, consultants, onSave, onSaveConsultants, onLock, onBack, dark, onDark, mode, onMode }: Props) {
   const [instructions, setInstructions] = useState(settings.instructions);
   const [parts, setParts] = useState(settings.parts.join("\n"));
   const [groups, setGroups] = useState(settings.groups.join("\n"));
@@ -123,6 +125,23 @@ export default function SettingsView({ settings, consultants, onSave, onSaveCons
           <button className="mono-btn add-btn" data-boxed="" onClick={() => setPeople([...people, { id: newId(), name: "" }])}>
             + Consultant
           </button>
+        </div>
+
+        <div className="setting">
+          <p className="label">Version</p>
+          <p className="hint">
+            Simple: one note per operation, edited by hand or by Claude. Full: steps with parts, tags and filters, plus videos, links, op tech and knowledge tabs.
+            The first time you open an operation in the simple version, its note starts from everything on the full page. After that the two are kept
+            separately. On this device.
+          </p>
+          <div className="chips">
+            <button type="button" className="chip" aria-pressed={mode === "simple"} onClick={() => onMode("simple")}>
+              Simple
+            </button>
+            <button type="button" className="chip" aria-pressed={mode === "full"} onClick={() => onMode("full")}>
+              Full
+            </button>
+          </div>
         </div>
 
         <div className="setting">

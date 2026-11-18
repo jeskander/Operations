@@ -36,6 +36,8 @@ export type Content = {
   videos: Video[];
   links: Link[];
   questions: Question[];
+  /** The simple version's one note, as HTML. Empty until the simple version is first opened. */
+  note: string;
 };
 
 export type Operation = {

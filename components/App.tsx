@@ -10,6 +10,7 @@ import FeedbackView from "./FeedbackView";
 import SettingsView from "./SettingsView";
 import OperationPage, { type Tab } from "./OperationPage";
 import ProposalSheet from "./ProposalSheet";
+import SimplePage, { NoteProposalSheet } from "./SimplePage";
 
 const NO_FILTERS: Filters = { kit: "", technique: "", consultant: "" };
 
@@ -71,6 +72,20 @@ export default function App() {
     where: "op",
   });
   const [proposal, setProposal] = useState<{ opId: string; instruction: string; proposal: Proposal } | null>(null);
+  const [noteProposal, setNoteProposal] = useState<{ opId: string; instruction: string; summary: string[]; html: string; before: string } | null>(null);
+  // Simple (one note) or full (steps, tabs, tags). Kept per device; simple unless switched.
+  const [mode, setModeState] = useState<"simple" | "full">("simple");
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("op-mode") === "full") setModeState("full");
+    } catch {}
+  }, []);
+  const setMode = (m: "simple" | "full") => {
+    setModeState(m);
+    try {
+      localStorage.setItem("op-mode", m);
+    } catch {}
+  };
   const [accepting, setAccepting] = useState(false);
   const [toast, setToast] = useState<{ text: string; undoId?: string } | null>(null);
   const [creating, setCreating] = useState<{ name: string; region: string } | null>(null);
@@ -348,7 +363,31 @@ export default function App() {
 
   // ---------- Claude ----------
 
+  const proposeNote = async (target: Operation, instruction: string) => {
+    if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
+    setAi({ busy: true, note: "Claude is working on it…", error: false, where: "op" });
+    try {
+      const r = await api<{ proposal: { summary: string[]; html: string; before: string } }>(`/api/operations/${target.id}/note-ai`, {
+        method: "POST",
+        body: { instruction },
+      });
+      setNoteProposal({ opId: target.id, instruction, ...r.proposal });
+      setAi({ busy: false, note: null, error: false, where: "op" });
+    } catch (e) {
+      setAi({ busy: false, note: (e as Error).message, error: true, where: "op" });
+    }
+  };
+
+  const acceptNote = () => {
+    if (!noteProposal) return;
+    const { opId, html } = noteProposal;
+    change(opId, (f) => ({ ...f, content: { ...f.content, note: html } }));
+    setNoteProposal(null);
+    setToast({ text: "Saved", undoId: opId });
+  };
+
   const propose = async (target: Operation, instruction: string) => {
+    if (mode === "simple") return proposeNote(target, instruction);
     if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
     setAi({ busy: true, note: "Claude is working on it…", error: false, where: "op" });
     try {
@@ -575,6 +614,8 @@ export default function App() {
             onBack={back}
             dark={dark}
             onDark={setTheme}
+            mode={mode}
+            onMode={setMode}
           />
         )}
 
@@ -591,13 +632,30 @@ export default function App() {
 
         {!view && <div className="home">Choose an operation, or add a learning and Claude will file it.</div>}
 
+        {op && mode === "simple" && (
+          <SimplePage
+            op={op}
+            consultants={consultants}
+            groups={settings.groups}
+            change={(next) => change(op.id, next)}
+            saveState={saveState}
+            canUndo={!!undo.current.get(op.id)?.length}
+            onUndo={() => undoLast(op.id)}
+            onDelete={remove}
+            onBack={back}
+            onFull={() => setMode("full")}
+          />
+        )}
+
         {op && (
           <>
+            {mode === "full" && (
             <OperationPage
               op={op}
               groups={settings.groups}
               operations={opsList}
               onSearch={focusSearch}
+              onSimple={() => setMode("simple")}
               consultants={consultants}
               filters={filters}
               setFilter={setFilter}
@@ -613,6 +671,7 @@ export default function App() {
               renameConsultant={renameConsultant}
               removeConsultant={removeConsultant}
             />
+            )}
             <AskBar
               placeholder="Ask Claude to add or change something…"
               busy={ai.busy && ai.where === "op"}
@@ -627,6 +686,17 @@ export default function App() {
           </>
         )}
       </main>
+
+      {noteProposal && (
+        <NoteProposalSheet
+          instruction={noteProposal.instruction}
+          summary={noteProposal.summary}
+          before={noteProposal.before}
+          after={noteProposal.html}
+          onAccept={acceptNote}
+          onDiscard={() => setNoteProposal(null)}
+        />
+      )}
 
       {proposal && proposalOp && (
         <ProposalSheet

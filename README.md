@@ -4,7 +4,12 @@ A T&O surgeon's notes on every operation, built for the phone.
 
 Each operation has **Steps** (sections of bullets and numbered lines), **Videos**, **Links**, **Op tech** (one per kit) and **Knowledge** (questions with answers). A line in the steps can be marked for one kit, one technique (e.g. Mako) or one consultant; the filters at the top hide lines that don't apply to today's case.
 
-The page is always editable and saves itself.
+**Two versions**, switched in Settings (per device; simple by default):
+
+- **Simple**: one note per operation (Tiptap, as in Theatres) with headings, bold, italic, underline, bullet and numbered lists, links and collapsible toggles. `> ` makes a toggle, `- ` bullets, `1. ` numbers, `# ` a heading; Cmd+B / I / U; Tab / Shift+Tab indent a list. The Claude bar edits the note, showing what it adds and removes first. The first time an operation opens here, its note starts from everything on the full page (tags become words in brackets); after that the note is kept on its own in `content.note`.
+- **Full**: everything below.
+
+The full page is always editable and saves itself.
 
 **Steps** use a Notion-style block editor (BlockNote), on test alongside the classic editor (switch at the top of the Steps tab; the choice is kept per device):
 - Type at the start of a line: `> ` part (toggle), `- ` / `* ` / `+ ` bullet, `1. ` numbered, `[] ` to-do, `# ` / `## ` / `### ` headings, `" ` quote, ` ``` ` code, `---` divider. `**bold**`, `*italic*`, `` `code` `` and `~~strike~~` format as you type.

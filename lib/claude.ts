@@ -176,3 +176,63 @@ export async function routeLearning(text: string, ops: { id: string; name: strin
     region: out.region?.trim() || null,
   };
 }
+
+// ---------- The simple version: one note ----------
+
+const NOTE_TOOL: BetaToolUnion = {
+  name: "propose_note",
+  description: "Submit the whole note with the surgeon's instruction applied. Call exactly once, last.",
+  strict: true,
+  input_schema: obj({
+    summary: list(s, "Each change you made, one short line each. Empty if nothing changed."),
+    html: { type: "string", description: "The whole note as HTML, using only the allowed tags." },
+  }) as never,
+};
+
+const NOTE_SYSTEM = `You keep a UK trauma & orthopaedic surgeon's personal note on one operation: their steps, tips, learnings, videos, links and knowledge, all in one note.
+
+The note is HTML using only these tags:
+- <h2> and <h3> headings
+- <p> paragraphs, with <strong>, <em>, <u> and <a href="…"> inside
+- <ul> / <ol> lists of <li><p>…</p></li>, nested by putting a list inside an <li>
+- collapsible toggles: <details open><summary>Title</summary><div data-type="detailsContent">…</div></details> (leave out "open" for a closed one)
+Nothing else: no tables, images, code, colours, classes or styles.
+
+Apply the surgeon's instruction and submit the whole note with propose_note.
+- Change only what the instruction asks. Keep everything else exactly as it is, including whether each toggle is open.
+- File each learning in the right place in the order of the operation, in the surgeon's own terse style. Use British spelling.
+- Something that applies to one kit, robotic vs conventional, or one consultant goes in brackets at the start of the line, e.g. "(Mako) keep the incision low".
+- Videos and links go as list items under a "Videos" or "Links" heading. Search the web only when asked for videos, links or op techs, and only use URLs from your search results; never write one from memory.
+- When asked to write knowledge, use a toggle per question with the answer inside. Be accurate, and say in the summary if something needs checking.
+- If the instruction is only a question, answer it in the summary and leave the note unchanged.`;
+
+export async function proposeNote(note: string, opName: string, instruction: string, standing = ""): Promise<{ summary: string[]; html: string }> {
+  const system = standing.trim() ? `${NOTE_SYSTEM}\n\n<surgeon_standing_instructions>\n${standing.trim()}\n</surgeon_standing_instructions>` : NOTE_SYSTEM;
+  const messages: BetaMessageParam[] = [
+    { role: "user", content: `<operation>${opName}</operation>\n\n<note>\n${note}\n</note>\n\n<instruction>\n${instruction}\n</instruction>` },
+  ];
+  for (let turn = 0; turn < 6; turn++) {
+    const response = await anthropic().beta.messages.create({
+      model: MODEL,
+      max_tokens: 32000,
+      ...FALLBACK,
+      system,
+      output_config: { effort: "medium" },
+      tools: [webSearch, NOTE_TOOL],
+      messages,
+    });
+    if (response.stop_reason === "refusal") throw new Error("Claude declined this change.");
+    if (response.stop_reason === "max_tokens") throw new Error("The note ran too long for one change.");
+    const call = response.content.find((b) => b.type === "tool_use" && b.name === "propose_note");
+    if (call && call.type === "tool_use") {
+      const input = call.input as { summary?: unknown; html?: unknown };
+      return {
+        summary: Array.isArray(input.summary) ? input.summary.filter((x): x is string => typeof x === "string") : [],
+        html: typeof input.html === "string" && input.html.trim() ? input.html : note,
+      };
+    }
+    messages.push({ role: "assistant", content: response.content });
+    if (response.stop_reason !== "pause_turn") messages.push({ role: "user", content: "Call propose_note now with the whole note." });
+  }
+  throw new Error("Claude didn't finish the change.");
+}

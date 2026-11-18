@@ -39,6 +39,7 @@ type Props = {
   /** Every operation, for [[ links. */
   operations: { id: string; name: string }[];
   onSearch: () => void;
+  onSimple: () => void;
   consultants: Consultant[];
   filters: Filters;
   setFilter: (k: keyof Filters, v: string) => void;
@@ -283,6 +284,9 @@ export default function OperationPage(p: Props) {
                 Delete operation
               </button>
             )}
+            <button type="button" className="mono-btn" data-boxed="" onClick={p.onSimple}>
+              Simple version
+            </button>
           </div>
         </Sheet>
       )}

@@ -2138,3 +2138,246 @@ details[open] > summary .chev {
   margin: 0;
   min-width: 260px;
 }
+
+/* =========================================================
+   Simple version: one note
+   ========================================================= */
+
+.simple-panel {
+  padding-left: var(--gutter);
+}
+
+.note {
+  position: relative;
+}
+
+.note-body {
+  outline: none;
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  min-height: 40vh;
+}
+
+.note-body > * + * {
+  margin-top: 0.35rem;
+}
+
+.note-body p {
+  margin: 0;
+}
+
+.note-body h2 {
+  margin: 1.4rem 0 0.3rem;
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.note-body h3 {
+  margin: 1rem 0 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.note-body > h2:first-child,
+.note-body > h3:first-child {
+  margin-top: 0;
+}
+
+.note-body ul,
+.note-body ol {
+  margin: 0.15rem 0;
+  padding-left: 1.4rem;
+}
+
+.note-body ul {
+  list-style: disc;
+}
+
+.note-body ul ul {
+  list-style: circle;
+}
+
+.note-body ol {
+  list-style: decimal;
+}
+
+.note-body li {
+  margin: 0.1rem 0;
+}
+
+.note-body li::marker {
+  color: var(--graphite);
+}
+
+.note-body a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.note-body p.is-empty::before,
+.note-body summary.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--graphite);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Toggles */
+.note-body [data-type="details"] {
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
+.note-body > [data-type="details"] {
+  border-top: 1px solid var(--hairline);
+  padding-top: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.note-body > [data-type="details"]:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.note-body [data-type="details"] > button {
+  flex: none;
+  width: 1.4rem;
+  height: 1.6em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--graphite);
+  cursor: pointer;
+}
+
+.note-body [data-type="details"] > button:hover {
+  background: var(--paper-2);
+}
+
+.note-body [data-type="details"] > button::before {
+  content: "▸";
+  font-size: 0.85rem;
+  transition: transform 0.2s var(--ease);
+}
+
+.note-body [data-type="details"].is-open > button::before {
+  transform: rotate(90deg);
+}
+
+.note-body [data-type="details"] > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-body summary {
+  display: block;
+  list-style: none;
+  font-weight: 500;
+  cursor: text;
+}
+
+.note-body summary::-webkit-details-marker {
+  display: none;
+}
+
+.note-body > [data-type="details"] > div > summary {
+  font-size: 1.05rem;
+}
+
+.note-body [data-type="detailsContent"] {
+  margin-top: 0.2rem;
+}
+
+.note-body [data-type="detailsContent"][hidden] {
+  display: none;
+}
+
+/* Formatting buttons: a quiet row above the note on a computer, above the keyboard on a phone. */
+.note-tools {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem;
+  margin: -0.5rem 0 0.75rem;
+  padding: 0.35rem 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.note-tool {
+  min-width: 2.1rem;
+  height: 2rem;
+  padding: 0 0.4rem;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+
+.note-tool:hover {
+  background: var(--paper-2);
+}
+
+.note-tool[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.note-tool.dim {
+  opacity: 0.35;
+}
+
+.note-done {
+  display: none;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+@media (pointer: coarse) {
+  /* On a phone the row sits above the keyboard while typing, and is hidden otherwise. */
+  .note-tools {
+    display: none;
+  }
+  .note-tools[data-floating] {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    z-index: 25;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0;
+    padding: 0.35rem max(0.5rem, env(safe-area-inset-left, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--hairline);
+    border-bottom: 0;
+  }
+  .note-tool {
+    flex: none;
+    min-width: 2.5rem;
+    height: 2.4rem;
+  }
+  .note-done {
+    display: block;
+  }
+}
+
+/* The simple page's header scrolls away; the formatting row is what stays at the top. */
+.simple-top {
+  position: relative;
+  padding-bottom: 1.25rem;
+}
