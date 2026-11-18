@@ -4,6 +4,7 @@ import { useState } from "react";
 import { IDLE_MINUTES } from "@/lib/auth";
 import { newId } from "@/lib/content";
 import type { Consultant, Settings } from "@/lib/types";
+import VersionSwitch, { type Version } from "./VersionSwitch";
 
 type Props = {
   settings: Settings;
@@ -14,8 +15,8 @@ type Props = {
   onBack: () => void;
   dark: boolean;
   onDark: (on: boolean) => void;
-  mode: "simple" | "full";
-  onMode: (m: "simple" | "full") => void;
+  mode: Version;
+  onMode: (m: Version) => void;
 };
 
 const toLines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
@@ -130,18 +131,11 @@ export default function SettingsView({ settings, consultants, onSave, onSaveCons
         <div className="setting">
           <p className="label">Version</p>
           <p className="hint">
-            Simple: one note per operation, edited by hand or by Claude. Full: steps with parts, tags and filters, plus videos, links, op tech and knowledge tabs.
-            The first time you open an operation in the simple version, its note starts from everything on the full page. After that the two are kept
-            separately. On this device.
+            Also at the top of every operation. Simple: one note, edited by hand or by Claude. Notion-style and Classic: the full page (steps with parts, tags
+            and filters, plus videos, links, op tech and knowledge), with the steps in the Notion-style editor or the classic one. The simple note starts from
+            the full page the first time you open an operation in it; after that the two are kept separately. On this device.
           </p>
-          <div className="chips">
-            <button type="button" className="chip" aria-pressed={mode === "simple"} onClick={() => onMode("simple")}>
-              Simple
-            </button>
-            <button type="button" className="chip" aria-pressed={mode === "full"} onClick={() => onMode("full")}>
-              Full
-            </button>
-          </div>
+          <VersionSwitch value={mode} onChange={onMode} />
         </div>
 
         <div className="setting">

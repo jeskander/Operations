@@ -11,6 +11,7 @@ import SettingsView from "./SettingsView";
 import OperationPage, { type Tab } from "./OperationPage";
 import ProposalSheet from "./ProposalSheet";
 import SimplePage, { NoteProposalSheet } from "./SimplePage";
+import type { Version } from "./VersionSwitch";
 
 const NO_FILTERS: Filters = { kit: "", technique: "", consultant: "" };
 
@@ -74,13 +75,16 @@ export default function App() {
   const [proposal, setProposal] = useState<{ opId: string; instruction: string; proposal: Proposal } | null>(null);
   const [noteProposal, setNoteProposal] = useState<{ opId: string; instruction: string; summary: string[]; html: string; before: string } | null>(null);
   // Simple (one note) or full (steps, tabs, tags). Kept per device; simple unless switched.
-  const [mode, setModeState] = useState<"simple" | "full">("simple");
+  // Simple (one note), Notion-style or Classic (the full page with either steps editor). Kept per device.
+  const [mode, setModeState] = useState<Version>("simple");
   useEffect(() => {
     try {
-      if (localStorage.getItem("op-mode") === "full") setModeState("full");
+      const saved = localStorage.getItem("op-mode");
+      if (saved === "notion" || saved === "classic" || saved === "simple") setModeState(saved);
+      else if (saved === "full") setModeState(localStorage.getItem("op-editor") === "classic" ? "classic" : "notion");
     } catch {}
   }, []);
-  const setMode = (m: "simple" | "full") => {
+  const setMode = (m: Version) => {
     setModeState(m);
     try {
       localStorage.setItem("op-mode", m);
@@ -643,19 +647,21 @@ export default function App() {
             onUndo={() => undoLast(op.id)}
             onDelete={remove}
             onBack={back}
-            onFull={() => setMode("full")}
+            version={mode}
+            onVersion={setMode}
           />
         )}
 
         {op && (
           <>
-            {mode === "full" && (
+            {mode !== "simple" && (
             <OperationPage
               op={op}
               groups={settings.groups}
               operations={opsList}
               onSearch={focusSearch}
-              onSimple={() => setMode("simple")}
+              version={mode}
+              onVersion={setMode}
               consultants={consultants}
               filters={filters}
               setFilter={setFilter}

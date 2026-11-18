@@ -9,18 +9,11 @@ import { KitSheet, Knowledge, Links, OpTech, Videos, type Update } from "./Lists
 import Sheet from "./Sheet";
 import dynamic from "next/dynamic";
 import Steps from "./Steps";
+import VersionSwitch, { type Version } from "./VersionSwitch";
 
 // The Notion-style editor runs in the browser only.
 const BlockEditor = dynamic(() => import("./BlockEditor"), { ssr: false, loading: () => <p className="empty reading">Loading the editor…</p> });
 
-type EditorMode = "notion" | "classic";
-const readMode = (): EditorMode => {
-  try {
-    return localStorage.getItem("op-editor") === "classic" ? "classic" : "notion";
-  } catch {
-    return "notion";
-  }
-};
 
 export type Tab = "steps" | "videos" | "links" | "optech" | "knowledge";
 
@@ -39,7 +32,8 @@ type Props = {
   /** Every operation, for [[ links. */
   operations: { id: string; name: string }[];
   onSearch: () => void;
-  onSimple: () => void;
+  version: Version;
+  onVersion: (v: Version) => void;
   consultants: Consultant[];
   filters: Filters;
   setFilter: (k: keyof Filters, v: string) => void;
@@ -62,8 +56,6 @@ export default function OperationPage(p: Props) {
   const c = op.content;
   const [manage, setManage] = useState<{ kind: "kit" | "mode" | "consultant"; id: string } | null>(null);
   const [menu, setMenu] = useState(false);
-  const [editorMode, setEditorMode] = useState<EditorMode>("notion");
-  useEffect(() => setEditorMode(readMode()), []);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const update: Update = (next) => p.change((f) => ({ ...f, content: typeof next === "function" ? next(f.content) : next }));
@@ -114,6 +106,7 @@ export default function OperationPage(p: Props) {
           <p className="subtitle">
             <Editable value={op.subtitle} placeholder="Add a line under the name" ariaLabel="subtitle" onCommit={(v) => setField("subtitle", v.trim())} />
           </p>
+          <VersionSwitch value={p.version} onChange={p.onVersion} />
         </div>
         <div className="topbar-actions">
           <span className="save-state" data-state={p.saveState}>
@@ -169,23 +162,7 @@ export default function OperationPage(p: Props) {
       <section className="panel">
         {tab === "steps" && (
           <>
-            <div className="editor-switch">
-              <span className="label">{editorMode === "notion" ? "New editor · test" : "Classic editor"}</span>
-              <button
-                type="button"
-                className="mono-btn"
-                onClick={() => {
-                  const next = editorMode === "notion" ? "classic" : "notion";
-                  setEditorMode(next);
-                  try {
-                    localStorage.setItem("op-editor", next);
-                  } catch {}
-                }}
-              >
-                {editorMode === "notion" ? "Use classic" : "Try the new editor"}
-              </button>
-            </div>
-            {editorMode === "notion" ? (
+            {p.version === "notion" ? (
               <BlockEditor
                 key={op.id}
                 opId={op.id}
@@ -284,9 +261,7 @@ export default function OperationPage(p: Props) {
                 Delete operation
               </button>
             )}
-            <button type="button" className="mono-btn" data-boxed="" onClick={p.onSimple}>
-              Simple version
-            </button>
+
           </div>
         </Sheet>
       )}

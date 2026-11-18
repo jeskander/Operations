@@ -6,6 +6,7 @@ import { contentToNote, noteLines } from "@/lib/note";
 import type { Consultant, Operation, OperationFields } from "@/lib/types";
 import Editable from "./Editable";
 import Sheet from "./Sheet";
+import VersionSwitch, { type Version } from "./VersionSwitch";
 
 const NoteEditor = dynamic(() => import("./NoteEditor"), { ssr: false, loading: () => <p className="empty reading">Loading…</p> });
 
@@ -19,7 +20,8 @@ type Props = {
   onUndo: () => void;
   onDelete: () => void;
   onBack: () => void;
-  onFull: () => void;
+  version: Version;
+  onVersion: (v: Version) => void;
 };
 
 /** The simple version: the operation's name and one note. */
@@ -46,6 +48,7 @@ export default function SimplePage(p: Props) {
           <h1 className="name">
             <Editable value={op.name} placeholder="Operation name" ariaLabel="name" onCommit={(v) => v.trim() && setField("name", v.trim())} />
           </h1>
+          <VersionSwitch value={p.version} onChange={p.onVersion} />
         </div>
         <div className="topbar-actions">
           <span className="save-state" data-state={p.saveState}>
@@ -93,9 +96,7 @@ export default function SimplePage(p: Props) {
                 Delete operation
               </button>
             )}
-            <button type="button" className="mono-btn" data-boxed="" onClick={p.onFull}>
-              Full version
-            </button>
+
           </div>
         </Sheet>
       )}

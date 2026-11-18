@@ -2381,3 +2381,34 @@ details[open] > summary .chev {
   position: relative;
   padding-bottom: 1.25rem;
 }
+
+/* Simple · Notion-style · Classic, under each operation's name. */
+.version-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  margin-top: 0.7rem;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+}
+
+.version-opt {
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--graphite);
+  white-space: nowrap;
+}
+
+.version-opt:hover {
+  color: var(--ink);
+}
+
+.version-opt[aria-checked="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
