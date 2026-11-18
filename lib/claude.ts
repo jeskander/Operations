@@ -49,12 +49,15 @@ const PROPOSE_TOOL: BetaToolUnion = {
     blocks: list(
       obj({
         id: s,
-        type: { type: "string", enum: ["toggle", "heading", "bullet", "number", "text"] },
+        type: { type: "string", enum: ["toggle", "heading", "bullet", "number", "text", "todo", "quote", "code", "divider", "image"] },
         text: { type: "string", description: "Short. **bold** and *italic* allowed." },
         depth: { type: "integer", description: "Nesting: 0 at the top, or at most one more than the block above it." },
         kit: { ...sOrNull, description: "A kit id if this block (and everything nested in it) applies only to that kit" },
         technique: { ...sOrNull, description: "A technique (mode) id if only for that technique" },
         consultant: { ...sOrNull, description: "A consultant id if only for that consultant" },
+        level: { type: ["integer", "null"], description: "Heading level 1-3 for a heading; null otherwise" },
+        checked: { type: ["boolean", "null"], description: "Whether a to-do is ticked; null otherwise" },
+        url: { ...sOrNull, description: "An image's address (keep existing ones as they are); null otherwise" },
       }),
       "The steps of the operation as blocks in reading order.",
     ),

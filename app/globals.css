@@ -1942,3 +1942,140 @@ details[open] > summary .chev {
 .login .hint {
   margin-top: -0.6rem;
 }
+
+/* =========================================================
+   New editor (BlockNote), dressed as Theatres
+   ========================================================= */
+
+.editor-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.op-editor {
+  /* the side menu sits in the panel's left margin */
+  margin-left: -1.6rem;
+}
+
+.op-editor .bn-container {
+  --bn-font-family: var(--sans);
+  --bn-colors-editor-text: var(--ink);
+  --bn-colors-editor-background: var(--paper);
+  --bn-colors-menu-text: var(--ink);
+  --bn-colors-menu-background: var(--surface);
+  --bn-colors-tooltip-text: var(--paper);
+  --bn-colors-tooltip-background: var(--ink);
+  --bn-colors-hovered-text: var(--ink);
+  --bn-colors-hovered-background: var(--paper-2);
+  --bn-colors-selected-text: var(--paper);
+  --bn-colors-selected-background: var(--ink);
+  --bn-colors-disabled-text: var(--graphite);
+  --bn-colors-disabled-background: var(--paper-2);
+  --bn-colors-shadow: rgb(22 23 27 / 0.12);
+  --bn-colors-border: var(--hairline);
+  --bn-colors-side-menu: var(--graphite);
+  --bn-border-radius: 6px;
+}
+
+.op-editor .bn-editor {
+  padding-inline: 1.6rem 0;
+  background: var(--paper);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.op-editor .bn-inline-content code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--paper-2);
+  border-radius: 3px;
+  padding: 0 0.2em;
+}
+
+/* Parts: top-level toggles, numbered 01, 02… with a rule above, like the classic view. */
+.op-editor .bn-editor > .bn-block-group {
+  counter-reset: part;
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) {
+  counter-increment: part;
+  border-top: 1px solid var(--hairline);
+  padding-top: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) > .bn-block > .bn-toggle-wrapper::before {
+  content: counter(part, decimal-leading-zero);
+  flex: none;
+  align-self: center;
+  width: 1.9rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--graphite);
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content {
+  font-size: 1.02rem;
+  font-weight: 500;
+  min-height: 2.3rem;
+  align-items: center;
+}
+
+/* Sub-parts: toggles inside a part, numbered 03.1, 03.2… with a dashed rule. */
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-group {
+  counter-reset: sub;
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) {
+  counter-increment: sub;
+  border-top: 1px dashed var(--hairline);
+  padding-top: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) > .bn-block > .bn-toggle-wrapper::before {
+  content: counter(part, decimal-leading-zero) "." counter(sub);
+  flex: none;
+  align-self: center;
+  width: 2.4rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--graphite);
+}
+
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content {
+  font-weight: 500;
+  min-height: 2rem;
+  align-items: center;
+}
+
+.op-editor .bn-toggle-button {
+  color: var(--graphite);
+}
+
+/* Room for the number in front of the arrow. */
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) > .bn-block > .bn-toggle-wrapper,
+.op-editor .bn-editor > .bn-block-group > .bn-block-outer > .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-group > .bn-block-outer:has(> .bn-block > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content[data-content-type="toggleListItem"]) > .bn-block > .bn-toggle-wrapper {
+  grid-template-columns: auto auto 1fr;
+}
+
+.op-editor .bn-editor img {
+  border-radius: 6px;
+}
+
+@media (max-width: 820px) {
+  .op-editor {
+    margin-left: -1.2rem;
+  }
+  .op-editor .bn-editor {
+    padding-inline: 1.2rem 0;
+  }
+}

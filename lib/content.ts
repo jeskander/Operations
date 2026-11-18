@@ -41,7 +41,7 @@ export function normalize(raw: unknown): Content {
   };
 }
 
-const TYPES: BlockType[] = ["text", "bullet", "number", "toggle", "heading"];
+const TYPES: BlockType[] = ["text", "bullet", "number", "toggle", "heading", "todo", "quote", "code", "divider", "image"];
 
 function normalizeBlocks(raw: Record<string, unknown>[]): Block[] {
   return fixDepths(
@@ -53,6 +53,9 @@ function normalizeBlocks(raw: Record<string, unknown>[]): Block[] {
       kit: strOrNull(b.kit),
       technique: strOrNull(b.technique),
       consultant: strOrNull(b.consultant),
+      ...(b.type === "heading" ? { level: Math.max(1, Math.min(3, Number(b.level) || 2)) } : {}),
+      ...(b.type === "todo" ? { checked: b.checked === true } : {}),
+      ...(b.type === "image" ? { url: str(b.url) } : {}),
     })),
   );
 }

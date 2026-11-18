@@ -1,4 +1,4 @@
-export type BlockType = "text" | "bullet" | "number" | "toggle" | "heading";
+export type BlockType = "text" | "bullet" | "number" | "toggle" | "heading" | "todo" | "quote" | "code" | "divider" | "image";
 
 /**
  * One block of the steps, Notion-style. The steps are a flat list in reading order; depth nests a
@@ -14,7 +14,14 @@ export type Block = {
   kit: string | null;
   technique: string | null;
   consultant: string | null;
+  /** Heading level 1–3. */
+  level?: number;
+  /** A ticked to-do. */
+  checked?: boolean;
+  /** An image's address; its text is the caption. */
+  url?: string;
 };
+
 export type Kit = { id: string; name: string; maker: string; url: string };
 export type Technique = { id: string; name: string };
 export type VideoGroup = "full" | "other";
