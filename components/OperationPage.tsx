@@ -34,7 +34,6 @@ type Props = {
   onSearch: () => void;
   version: Version;
   onVersion: (v: Version) => void;
-  consultants: Consultant[];
   filters: Filters;
   setFilter: (k: keyof Filters, v: string) => void;
   tab: Tab;
@@ -46,14 +45,12 @@ type Props = {
   onUndo: () => void;
   onDelete: () => void;
   onBack: () => void;
-  addConsultant: (name: string) => Promise<Consultant | null>;
-  renameConsultant: (id: string, name: string) => void;
-  removeConsultant: (id: string) => void;
 };
 
 export default function OperationPage(p: Props) {
-  const { op, consultants, filters, tab } = p;
+  const { op, filters, tab } = p;
   const c = op.content;
+  const consultants = c.consultants;
   const [manage, setManage] = useState<{ kind: "kit" | "mode" | "consultant"; id: string } | null>(null);
   const [menu, setMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -79,6 +76,13 @@ export default function OperationPage(p: Props) {
     update((x) => ({ ...x, techniques: [...x.techniques, { id, name }] }));
     p.setFilter("technique", id);
   };
+  const addConsultant = async (name: string): Promise<Consultant | null> => {
+    const made = { id: newId(), name };
+    update((x) => ({ ...x, consultants: [...x.consultants, made] }));
+    return made;
+  };
+  const renameConsultant = (id: string, name: string) =>
+    update((x) => ({ ...x, consultants: x.consultants.map((k) => (k.id === id ? { ...k, name } : k)) }));
   const clearRefs = (key: "technique" | "consultant", id: string) => (x: Content): Content => ({
     ...x,
     blocks: x.blocks.map((b) => (b[key] === id ? { ...b, [key]: null } : b)),
@@ -141,7 +145,7 @@ export default function OperationPage(p: Props) {
             onSelect={(v) => p.setFilter("consultant", v)}
             onManage={(id) => setManage({ kind: "consultant", id })}
             onAdd={async (name) => {
-              const made = await p.addConsultant(name);
+              const made = await addConsultant(name);
               if (made) p.setFilter("consultant", made.id);
             }}
             addLabel="Consultant"
@@ -169,12 +173,12 @@ export default function OperationPage(p: Props) {
                 consultants={consultants}
                 filters={filters}
                 update={update}
-                addConsultant={p.addConsultant}
+                addConsultant={addConsultant}
                 operations={p.operations}
                 onSearch={p.onSearch}
               />
             ) : (
-              <Steps opId={op.id} content={c} consultants={consultants} filters={filters} update={update} addConsultant={p.addConsultant} />
+              <Steps opId={op.id} content={c} consultants={consultants} filters={filters} update={update} addConsultant={addConsultant} />
             )}
           </>
         )}
@@ -214,21 +218,19 @@ export default function OperationPage(p: Props) {
 
       {person && (
         <Sheet title="Consultant" onClose={() => setManage(null)}>
-          <ConsultantName key={person.id} person={person} onRename={p.renameConsultant} />
-          <p className="hint">Consultants are shared by every operation.</p>
+          <ConsultantName key={person.id} person={person} onRename={renameConsultant} />
           <div className="sheet-actions">
             <button
               type="button"
               className="mono-btn"
               data-danger=""
               onClick={() => {
-                update(clearRefs("consultant", person.id));
-                p.removeConsultant(person.id);
+                update((x) => ({ ...clearRefs("consultant", person.id)(x), consultants: x.consultants.filter((k) => k.id !== person.id) }));
                 p.setFilter("consultant", "");
                 setManage(null);
               }}
             >
-              Remove from all operations
+              Remove consultant
             </button>
           </div>
         </Sheet>

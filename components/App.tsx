@@ -59,9 +59,6 @@ export default function App() {
     opsRef.current = next;
     setOpsState(next);
   };
-  const [consultants, setConsultants] = useState<Consultant[]>([]);
-  const consultantsRef = useRef<Consultant[]>([]);
-  consultantsRef.current = consultants;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<View>(null);
   const [query, setQuery] = useState("");
@@ -109,10 +106,9 @@ export default function App() {
 
   const load = useCallback(
     () =>
-      api<{ operations: Operation[]; consultants: Consultant[] }>("/api/operations")
+      api<{ operations: Operation[] }>("/api/operations")
         .then((r) => {
           setOps(r.operations);
-          setConsultants(r.consultants);
           setLoadError(null);
         })
         .catch((e: Error) => setLoadError(e.message)),
@@ -481,13 +477,12 @@ export default function App() {
     const before = opsRef.current?.find((o) => o.id === proposal.opId);
     setAccepting(true);
     try {
-      const r = await api<{ operation: Operation; consultants: Consultant[] }>(`/api/operations/${proposal.opId}/accept`, {
+      const r = await api<{ operation: Operation }>(`/api/operations/${proposal.opId}/accept`, {
         method: "POST",
         body: { proposal: proposal.proposal, instruction: proposal.instruction },
       });
       if (before) pushUndo(before);
       replaceOp(r.operation);
-      setConsultants(r.consultants);
       setProposal(null);
       setToast({ text: "Saved", undoId: proposal.opId });
     } catch (e) {
@@ -496,30 +491,6 @@ export default function App() {
       setAccepting(false);
     }
   };
-
-  // ---------- Consultants (shared by every operation) ----------
-
-  const putConsultants = async (list: Consultant[]) => {
-    const r = await api<{ consultants: Consultant[] }>("/api/consultants", { method: "PUT", body: { consultants: list } });
-    setConsultants(r.consultants);
-    return r.consultants;
-  };
-
-  const addConsultant = async (name: string) => {
-    try {
-      const saved = await putConsultants([...consultantsRef.current, { id: newId(), name }]);
-      return saved.find((c) => c.name === name && !consultantsRef.current.some((o) => o.id === c.id)) ?? saved[saved.length - 1] ?? null;
-    } catch (e) {
-      setToast({ text: (e as Error).message });
-      return null;
-    }
-  };
-
-  const renameConsultant = (id: string, name: string) =>
-    putConsultants(consultantsRef.current.map((c) => (c.id === id ? { ...c, name } : c))).catch((e: Error) => setToast({ text: e.message }));
-
-  const removeConsultant = (id: string) =>
-    putConsultants(consultantsRef.current.filter((c) => c.id !== id)).catch((e: Error) => setToast({ text: e.message }));
 
   // ---------- Other ----------
 
@@ -629,13 +600,9 @@ export default function App() {
 
         {view?.kind === "settings" && (
           <SettingsView
-            key={JSON.stringify(settings) + consultants.length}
+            key={JSON.stringify(settings)}
             settings={settings}
-            consultants={consultants}
             onSave={saveSettings}
-            onSaveConsultants={async (list) => {
-              await putConsultants(list);
-            }}
             onLock={lock}
             onBack={back}
             dark={dark}
@@ -661,7 +628,7 @@ export default function App() {
         {op && mode === "simple" && (
           <SimplePage
             op={op}
-            consultants={consultants}
+            consultants={op.content.consultants}
             groups={settings.groups}
             change={(next) => change(op.id, next)}
             saveState={saveState}
@@ -684,7 +651,7 @@ export default function App() {
               onSearch={focusSearch}
               version={mode}
               onVersion={setMode}
-              consultants={consultants}
+              
               filters={filters}
               setFilter={setFilter}
               tab={tab}
@@ -695,9 +662,6 @@ export default function App() {
               onUndo={() => undoLast(op.id)}
               onDelete={remove}
               onBack={back}
-              addConsultant={addConsultant}
-              renameConsultant={renameConsultant}
-              removeConsultant={removeConsultant}
             />
             )}
             <AskBar
@@ -747,7 +711,7 @@ export default function App() {
       {proposal && proposalOp && (
         <ProposalSheet
           op={proposalOp}
-          consultants={consultants}
+          consultants={proposalOp.content.consultants}
           instruction={proposal.instruction}
           proposal={proposal.proposal}
           busy={accepting}

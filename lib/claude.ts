@@ -43,7 +43,7 @@ const PROPOSE_TOOL: BetaToolUnion = {
     name: s,
     region: s,
     subtitle: { type: "string", description: "A few words under the name in the list, e.g. 'Attune · Medacta · Mako'." },
-    new_consultants: list(obj({ id: s, name: s }), "Consultants not yet in the list that this change mentions. Give each a new id and use it on items."),
+    new_consultants: list(obj({ id: s, name: s }), "Consultants not yet in this page's consultants list that this change mentions. Give each a new id and use it on items."),
     kits: list(obj({ id: s, name: s, maker: s, url: { type: "string", description: "Op tech link, or empty." } })),
     techniques: list(obj({ id: s, name: s }), "e.g. Conventional, Robotic (Mako). Only when steps differ by technique."),
     blocks: list(
@@ -98,22 +98,23 @@ type ProposeInput = {
   questions: unknown;
 };
 
-function pageText(op: Operation, consultants: Consultant[]): string {
+function pageText(op: Operation): string {
   const { content, name, region, subtitle } = op;
-  return JSON.stringify({ name, region, subtitle, consultants, ...content });
+  const { note: _note, ...rest } = content;
+  return JSON.stringify({ name, region, subtitle, ...rest });
 }
 
-export async function proposeEdit(op: Operation, consultants: Consultant[], instruction: string, standing = ""): Promise<Proposal> {
+export async function proposeEdit(op: Operation, instruction: string, standing = ""): Promise<Proposal> {
   const system = standing.trim() ? `${SYSTEM}\n\n<surgeon_standing_instructions>\n${standing.trim()}\n</surgeon_standing_instructions>` : SYSTEM;
   const messages: BetaMessageParam[] = [
     {
       role: "user",
-      content: `<page>\n${pageText(op, consultants)}\n</page>\n\n<instruction>\n${instruction}\n</instruction>`,
+      content: `<page>\n${pageText(op)}\n</page>\n\n<instruction>\n${instruction}\n</instruction>`,
     },
   ];
 
   for (let turn = 0; turn < 6; turn++) {
-    const response = await anthropic().beta.messages.create({
+    const response = await anthropic().beta.messages.stream({
       model: MODEL,
       max_tokens: 32000,
       ...FALLBACK,
@@ -121,18 +122,21 @@ export async function proposeEdit(op: Operation, consultants: Consultant[], inst
       output_config: { effort: "medium" },
       tools: [webSearch, PROPOSE_TOOL],
       messages,
-    });
+    }).finalMessage();
     if (response.stop_reason === "refusal") throw new Error("Claude declined this change.");
     if (response.stop_reason === "max_tokens") throw new Error("The page ran too long for one change.");
 
     const call = response.content.find((b) => b.type === "tool_use" && b.name === "propose_page");
     if (call && call.type === "tool_use") {
       const input = call.input as ProposeInput;
+      const fresh = Array.isArray(input.new_consultants) ? input.new_consultants.filter((c) => c?.id && c?.name) : [];
       const content = normalize(input);
+      content.note = op.content.note;
+      content.consultants = [...op.content.consultants, ...fresh.filter((c) => !op.content.consultants.some((o) => o.id === c.id))];
       return {
         summary: Array.isArray(input.summary) ? input.summary.filter((x) => typeof x === "string") : [],
         operation: { name: input.name || op.name, region: input.region || op.region, subtitle: input.subtitle ?? op.subtitle, content },
-        newConsultants: Array.isArray(input.new_consultants) ? input.new_consultants.filter((c) => c?.id && c?.name) : [],
+        newConsultants: fresh,
       };
     }
 
@@ -157,7 +161,7 @@ const Route = z.object({
     .string()
     .nullable()
     .describe("If no existing operation fits, the name for a new one as a surgeon would write it, e.g. 'Total Knee Replacement'. Otherwise null."),
-  region: z.string().nullable().describe("For a new operation: Hip, Knee, Foot & ankle, Shoulder & elbow, Hand & wrist, Spine, Paeds, Trauma or General."),
+  region: z.string().nullable().describe("For a new operation: Hip, Knee, Foot & ankle, Shoulder & elbow, Hand & wrist, Spine, Paeds or Skills & approaches (approaches, positioning, ex-fix, suturing, metalwork removal and other general skills). Trauma and elective go by body region."),
 });
 
 export async function routeLearning(text: string, ops: { id: string; name: string }[], context = "") {
@@ -196,8 +200,8 @@ const ASK_SYSTEM = `You answer questions from a UK trauma & orthopaedic surgeon 
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-export async function answerQuestion(history: ChatTurn[], pages: Operation[], allNames: string[], consultants: Consultant[]): Promise<string> {
-  const pagesText = pages.map((op) => `<page>\n${pageText(op, consultants)}\n</page>`).join("\n") || "(no relevant pages found)";
+export async function answerQuestion(history: ChatTurn[], pages: Operation[], allNames: string[]): Promise<string> {
+  const pagesText = pages.map((op) => `<page>\n${pageText(op)}\n</page>`).join("\n") || "(no relevant pages found)";
   const turns = history.slice(-10);
   const last = turns[turns.length - 1];
   const messages: BetaMessageParam[] = [
@@ -209,7 +213,7 @@ export async function answerQuestion(history: ChatTurn[], pages: Operation[], al
   ];
   let answer = "";
   for (let turn = 0; turn < 4; turn++) {
-    const response = await anthropic().beta.messages.create({
+    const response = await anthropic().beta.messages.stream({
       model: MODEL,
       max_tokens: 8000,
       ...FALLBACK,
@@ -217,7 +221,7 @@ export async function answerQuestion(history: ChatTurn[], pages: Operation[], al
       output_config: { effort: "low" },
       tools: [webSearch],
       messages,
-    });
+    }).finalMessage();
     if (response.stop_reason === "refusal") throw new Error("Claude declined to answer this.");
     answer += response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     if (response.stop_reason !== "pause_turn") break;
@@ -261,7 +265,7 @@ export async function proposeNote(note: string, opName: string, instruction: str
     { role: "user", content: `<operation>${opName}</operation>\n\n<note>\n${note}\n</note>\n\n<instruction>\n${instruction}\n</instruction>` },
   ];
   for (let turn = 0; turn < 6; turn++) {
-    const response = await anthropic().beta.messages.create({
+    const response = await anthropic().beta.messages.stream({
       model: MODEL,
       max_tokens: 32000,
       ...FALLBACK,
@@ -269,7 +273,7 @@ export async function proposeNote(note: string, opName: string, instruction: str
       output_config: { effort: "medium" },
       tools: [webSearch, NOTE_TOOL],
       messages,
-    });
+    }).finalMessage();
     if (response.stop_reason === "refusal") throw new Error("Claude declined this change.");
     if (response.stop_reason === "max_tokens") throw new Error("The note ran too long for one change.");
     const call = response.content.find((b) => b.type === "tool_use" && b.name === "propose_note");

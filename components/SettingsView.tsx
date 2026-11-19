@@ -2,15 +2,12 @@
 
 import { useState } from "react";
 import { IDLE_MINUTES } from "@/lib/auth";
-import { newId } from "@/lib/content";
-import type { Consultant, Settings } from "@/lib/types";
+import type { Settings } from "@/lib/types";
 import VersionSwitch, { type Version } from "./VersionSwitch";
 
 type Props = {
   settings: Settings;
-  consultants: Consultant[];
   onSave: (s: Settings) => Promise<void>;
-  onSaveConsultants: (list: Consultant[]) => Promise<void>;
   onLock: () => void;
   onBack: () => void;
   dark: boolean;
@@ -21,40 +18,29 @@ type Props = {
 
 const toLines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
 
-export default function SettingsView({ settings, consultants, onSave, onSaveConsultants, onLock, onBack, dark, onDark, mode, onMode }: Props) {
+export default function SettingsView({ settings, onSave, onLock, onBack, dark, onDark, mode, onMode }: Props) {
   const [instructions, setInstructions] = useState(settings.instructions);
   const [parts, setParts] = useState(settings.parts.join("\n"));
   const [groups, setGroups] = useState(settings.groups.join("\n"));
-  const [people, setPeople] = useState(consultants);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
   const changed =
     instructions !== settings.instructions ||
     toLines(parts).join("\n") !== settings.parts.join("\n") ||
-    toLines(groups).join("\n") !== settings.groups.join("\n") ||
-    JSON.stringify(people.filter((p) => p.name.trim())) !== JSON.stringify(consultants);
+    toLines(groups).join("\n") !== settings.groups.join("\n");
 
   const save = async () => {
     setBusy(true);
     setSaved(null);
     try {
       await onSave({ instructions, parts: toLines(parts), groups: toLines(groups) });
-      if (JSON.stringify(people) !== JSON.stringify(consultants)) await onSaveConsultants(people.filter((p) => p.name.trim()));
       setSaved("Saved");
     } catch (e) {
       setSaved((e as Error).message);
     } finally {
       setBusy(false);
     }
-  };
-
-  const move = (i: number, by: number) => {
-    const j = i + by;
-    if (j < 0 || j >= people.length) return;
-    const out = [...people];
-    [out[i], out[j]] = [out[j], out[i]];
-    setPeople(out);
   };
 
   return (
@@ -96,36 +82,6 @@ export default function SettingsView({ settings, consultants, onSave, onSaveCons
           </label>
           <p className="hint">The headings operations are filed under on the home screen, in this order. One per line.</p>
           <textarea id="set-groups" className="textarea" data-mono="" value={groups} onChange={(e) => setGroups(e.target.value)} />
-        </div>
-
-        <div className="setting">
-          <p className="label">Consultants</p>
-          <p className="hint">Shared by every operation. Removing one also hides their tags on the steps.</p>
-          {people.map((c, i) => (
-            <div key={c.id} className="edit-row">
-              <input
-                id={`c-${c.id}`}
-                className="input"
-                value={c.name}
-                placeholder="e.g. Mr Smith"
-                onChange={(e) => setPeople(people.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-              />
-              <span className="edit-tools">
-                <button className="mono-btn" aria-label="Move up" onClick={() => move(i, -1)}>
-                  ↑
-                </button>
-                <button className="mono-btn" aria-label="Move down" onClick={() => move(i, 1)}>
-                  ↓
-                </button>
-                <button className="mono-btn" aria-label="Remove" onClick={() => setPeople(people.filter((_, j) => j !== i))}>
-                  ✕
-                </button>
-              </span>
-            </div>
-          ))}
-          <button className="mono-btn add-btn" data-boxed="" onClick={() => setPeople([...people, { id: newId(), name: "" }])}>
-            + Consultant
-          </button>
         </div>
 
         <div className="setting">

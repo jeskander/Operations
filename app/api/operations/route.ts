@@ -1,9 +1,9 @@
-import { createOperation, listConsultants, listOperations } from "@/lib/data";
+import { createOperation, listOperations } from "@/lib/data";
 
 export async function GET() {
   try {
-    const [operations, consultants] = await Promise.all([listOperations(), listConsultants()]);
-    return Response.json({ operations, consultants });
+    const operations = await listOperations();
+    return Response.json({ operations });
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 500 });
   }

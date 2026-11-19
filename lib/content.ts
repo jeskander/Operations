@@ -4,13 +4,14 @@ import type { Block, BlockType, Content, Operation } from "./types";
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
 
-export const REGIONS = ["Hip", "Knee", "Foot & ankle", "Shoulder & elbow", "Hand & wrist", "Spine", "Paeds", "Trauma", "General", "Other"];
+export const REGIONS = ["Hip", "Knee", "Foot & ankle", "Shoulder & elbow", "Hand & wrist", "Spine", "Paeds", "Skills & approaches", "Other"];
 
 export const DEFAULT_SECTIONS = ["Pre-op & huddle", "Position & draping", "Approach", "Procedure", "Closure", "Post-op"];
 
 export const emptyContent = (parts: string[] = DEFAULT_SECTIONS): Content => ({
   kits: [],
   techniques: [],
+  consultants: [],
   blocks: parts.map((text) => ({ id: newId(), type: "toggle" as const, text, depth: 0, kit: null, technique: null, consultant: null })),
   videos: [],
   links: [],
@@ -29,6 +30,7 @@ export function normalize(raw: unknown): Content {
   return {
     kits: arr(c.kits).map((k) => ({ id: id(k.id), name: str(k.name), maker: str(k.maker), url: str(k.url) })),
     techniques: arr(c.techniques).map((t) => ({ id: id(t.id), name: str(t.name) })),
+    consultants: arr(c.consultants).map((t) => ({ id: id(t.id), name: str(t.name) })),
     blocks: Array.isArray(c.blocks) ? normalizeBlocks(arr(c.blocks)) : fromSections(arr(c.sections)),
     videos: arr(c.videos).map((v) => ({
       id: id(v.id),

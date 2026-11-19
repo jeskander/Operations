@@ -32,6 +32,8 @@ export type Question = { id: string; q: string; a: string };
 export type Content = {
   kits: Kit[];
   techniques: Technique[];
+  /** This page's own consultants. */
+  consultants: Consultant[];
   blocks: Block[];
   videos: Video[];
   links: Link[];
