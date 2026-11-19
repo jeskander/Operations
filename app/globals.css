@@ -2572,3 +2572,8 @@ details[open] > summary .chev {
   font-size: 0.8rem;
   color: var(--graphite);
 }
+
+/* No vertical guide line beside nested blocks. */
+.bn-block-group .bn-block-group .bn-block-outer:not([data-prev-depth-changed])::before {
+  border-left: 0 !important;
+}
