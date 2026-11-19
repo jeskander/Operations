@@ -3,14 +3,13 @@
 import { useState } from "react";
 
 /**
- * Type the password and press Enter. There's no form, the field is read-only until touched and is
- * marked for password managers to skip, so browsers don't offer to save or fill it.
+ * Laid out like Theatres. The field is a plain text box drawn as dots, not a password field, and
+ * there's no form, so browsers have no password to offer to save or fill.
  */
 export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [armed, setArmed] = useState(false);
 
   const submit = async () => {
     if (!password || busy) return;
@@ -33,12 +32,13 @@ export default function Login() {
 
   return (
     <main className="login">
-      <div className="login-form">
+      <div className="login-form" role="group" aria-label="Unlock">
         <span className="wordmark">Operations</span>
         <input
-          type="password"
-          className="login-input"
-          placeholder="Password, then Enter"
+          type="text"
+          inputMode="text"
+          className="login-input login-secret"
+          placeholder="Password"
           name="op-unlock"
           autoComplete="off"
           autoCorrect="off"
@@ -47,10 +47,8 @@ export default function Login() {
           enterKeyHint="go"
           data-1p-ignore=""
           data-lpignore="true"
+          data-bwignore=""
           data-form-type="other"
-          readOnly={!armed}
-          onFocus={() => setArmed(true)}
-          onPointerDown={() => setArmed(true)}
           autoFocus
           disabled={busy}
           value={password}
@@ -64,7 +62,9 @@ export default function Login() {
           aria-label="Password"
         />
         {error && <p className="login-error">{error}</p>}
-        <p className="hint">Locks after 10 minutes without use.</p>
+        <button type="button" className="create" disabled={!password || busy} onClick={submit}>
+          Sign in
+        </button>
       </div>
     </main>
   );

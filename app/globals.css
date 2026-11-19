@@ -1961,9 +1961,6 @@ details[open] > summary .chev {
   background: var(--paper-2);
 }
 
-.login .hint {
-  margin-top: -0.6rem;
-}
 
 /* =========================================================
    New editor (BlockNote), dressed as Theatres
@@ -2576,4 +2573,37 @@ details[open] > summary .chev {
 /* No vertical guide line beside nested blocks. */
 .bn-block-group .bn-block-group .bn-block-outer:not([data-prev-depth-changed])::before {
   border-left: 0 !important;
+}
+
+/* The unlock field is plain text drawn as dots, so browsers never treat it as a password to save. */
+.login-secret {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+
+.login-secret::placeholder {
+  -webkit-text-security: none;
+}
+
+.create {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.8rem 1.25rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s var(--ease);
+}
+
+.create:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.create:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
