@@ -146,6 +146,12 @@ export async function proposeEdit(op: Operation, consultants: Consultant[], inst
 // ---------- Which operation a learning belongs to ----------
 
 const Route = z.object({
+  intent: z
+    .enum(["learning", "question"])
+    .describe("question: the surgeon is asking something and wants an answer. learning: a tip, step or change to file on a page."),
+  relevant_operation_ids: z
+    .array(z.string())
+    .describe("For a question: ids of up to 4 existing operations whose pages help answer it (empty if none)."),
   operation_id: z.string().nullable().describe("The id of the existing operation this is about, or null if none fits."),
   new_operation_name: z
     .string()
@@ -154,27 +160,70 @@ const Route = z.object({
   region: z.string().nullable().describe("For a new operation: Hip, Knee, Foot & ankle, Shoulder & elbow, Hand & wrist, Spine, Paeds, Trauma or General."),
 });
 
-export async function routeLearning(text: string, ops: { id: string; name: string }[]) {
+export async function routeLearning(text: string, ops: { id: string; name: string }[], context = "") {
   const response = await anthropic().messages.parse({
     model: HAIKU,
     max_tokens: 2000,
     system:
-      "A T&O surgeon typed a note about an operation. Pick which of their existing operations it belongs to. Match loosely: abbreviations (TKR, DHS, THR, ORIF), sides and implant names all point to the operation. Only suggest a new operation if none fits.",
+      "A T&O surgeon typed something into their operations notebook. First decide whether it is a question to answer or a learning to file. Then pick which of their existing operations it is about. Match loosely: abbreviations (TKR, DHS, THR, ORIF), sides and implant names all point to the operation. For a learning, only suggest a new operation if none fits. For a question, list the operations whose pages help answer it; earlier conversation is given for follow-ups.",
     output_config: { effort: "low", format: zodOutputFormat(Route) },
     messages: [
       {
         role: "user",
-        content: `<operations>\n${ops.map((o) => `${o.id}: ${o.name}`).join("\n") || "(none yet)"}\n</operations>\n\n<note>\n${text}\n</note>`,
+        content: `<operations>\n${ops.map((o) => `${o.id}: ${o.name}`).join("\n") || "(none yet)"}\n</operations>\n\n${context ? `<earlier_conversation>\n${context}\n</earlier_conversation>\n\n` : ""}<note>\n${text}\n</note>`,
       },
     ],
   });
   const out = response.parsed_output;
   if (!out) throw new Error("Couldn't tell which operation this is about");
   return {
+    intent: out.intent,
+    relevantIds: out.relevant_operation_ids.filter((id) => ops.some((o) => o.id === id)).slice(0, 4),
     operationId: out.operation_id && ops.some((o) => o.id === out.operation_id) ? out.operation_id : null,
     newName: out.new_operation_name?.trim() || null,
     region: out.region?.trim() || null,
   };
+}
+
+// ---------- Answering a question across operations ----------
+
+const ASK_SYSTEM = `You answer questions from a UK trauma & orthopaedic surgeon about operations, using their own operations notebook.
+
+- The <pages> are the surgeon's own notes for the relevant operations: steps, tips per kit, mode and consultant, videos, links and Q&A. Base the answer on them first, and say which operation a point comes from when that helps.
+- If the notes don't cover it, say so briefly, then answer from your own knowledge, clearly marked as not from their notes. Search the web only when the answer needs a current source, a video or a link, and only use URLs from your search results.
+- Be terse and practical, like a senior colleague in theatre. Short bullet points. British spelling. Markdown only for bullets, bold and links.
+- Never change anything; if they want something added, tell them to say it as a learning (e.g. "Add to TKR: …").`;
+
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+
+export async function answerQuestion(history: ChatTurn[], pages: Operation[], allNames: string[], consultants: Consultant[]): Promise<string> {
+  const pagesText = pages.map((op) => `<page>\n${pageText(op, consultants)}\n</page>`).join("\n") || "(no relevant pages found)";
+  const turns = history.slice(-10);
+  const last = turns[turns.length - 1];
+  const messages: BetaMessageParam[] = [
+    ...turns.slice(0, -1).map((t) => ({ role: t.role, content: t.content })),
+    {
+      role: "user",
+      content: `<all_operations>\n${allNames.join("\n")}\n</all_operations>\n\n<pages>\n${pagesText}\n</pages>\n\n<question>\n${last.content}\n</question>`,
+    },
+  ];
+  let answer = "";
+  for (let turn = 0; turn < 4; turn++) {
+    const response = await anthropic().beta.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      ...FALLBACK,
+      system: ASK_SYSTEM,
+      output_config: { effort: "low" },
+      tools: [webSearch],
+      messages,
+    });
+    if (response.stop_reason === "refusal") throw new Error("Claude declined to answer this.");
+    answer += response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    if (response.stop_reason !== "pause_turn") break;
+    messages.push({ role: "assistant", content: response.content });
+  }
+  return answer.trim() || "No answer came back. Try asking again.";
 }
 
 // ---------- The simple version: one note ----------

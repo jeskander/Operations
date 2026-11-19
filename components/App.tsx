@@ -10,6 +10,7 @@ import FeedbackView from "./FeedbackView";
 import SettingsView from "./SettingsView";
 import OperationPage, { type Tab } from "./OperationPage";
 import ProposalSheet from "./ProposalSheet";
+import ClaudeBubble, { type ChatMsg } from "./ClaudeBubble";
 import SimplePage, { NoteProposalSheet } from "./SimplePage";
 import type { Version } from "./VersionSwitch";
 
@@ -72,6 +73,10 @@ export default function App() {
     error: false,
     where: "op",
   });
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const chatRef = useRef<ChatMsg[]>([]);
+  chatRef.current = chat;
   const [proposal, setProposal] = useState<{ opId: string; instruction: string; proposal: Proposal } | null>(null);
   const [noteProposal, setNoteProposal] = useState<{ opId: string; instruction: string; summary: string[]; html: string; before: string } | null>(null);
   // Simple (one note) or full (steps, tabs, tags). Kept per device; simple unless switched.
@@ -431,13 +436,31 @@ export default function App() {
 
   const fileFromHome = async (text: string) => {
     const fb = asFeedback(text);
-    if (fb) return addFeedback(fb);
-    setAi({ busy: true, note: "Finding the operation…", error: false, where: "home" });
+    if (fb) {
+      setChatOpen(false);
+      return addFeedback(fb);
+    }
+    setAi({ busy: true, note: "Thinking…", error: false, where: "home" });
     try {
-      const r = await api<{ operationId: string | null; newName: string | null; region: string | null }>("/api/route-learning", {
-        method: "POST",
-        body: { text },
-      });
+      const earlier = chatRef.current;
+      const context = earlier.slice(-6).map((m) => `${m.role === "user" ? "Surgeon" : "Claude"}: ${m.content}`).join("\n");
+      const r = await api<{ intent: "learning" | "question"; relevantIds: string[]; operationId: string | null; newName: string | null; region: string | null }>(
+        "/api/route-learning",
+        { method: "POST", body: { text, context } },
+      );
+      if (r.intent === "question") {
+        const history = [...earlier, { role: "user" as const, content: text }];
+        setChat(history);
+        setAi({ busy: true, note: "Reading your notes…", error: false, where: "home" });
+        const a = await api<{ answer: string; sources: { id: string; name: string }[] }>("/api/ask", {
+          method: "POST",
+          body: { history: history.map(({ role, content }) => ({ role, content })), opIds: r.relevantIds },
+        });
+        setChat([...history, { role: "assistant", content: a.answer, sources: a.sources }]);
+        setAi({ busy: false, note: null, error: false, where: "home" });
+        return;
+      }
+      setAi({ busy: true, note: "Finding the operation…", error: false, where: "home" });
       let target = opsRef.current?.find((o) => o.id === r.operationId) ?? null;
       if (!target) {
         if (!r.newName) throw new Error("Couldn't tell which operation this is about. Open it and add it there.");
@@ -445,6 +468,7 @@ export default function App() {
         target = made.operation;
         replaceOp(target);
       }
+      setChatOpen(false);
       go({ kind: "op", id: target.id });
       await propose(target, text);
     } catch (e) {
@@ -587,7 +611,6 @@ export default function App() {
           ))}
         </nav>
 
-        <AskBar placeholder="Add a learning to any operation…" busy={ai.busy && ai.where === "home"} note={ai.where === "home" ? ai.note : null} error={ai.error} onSend={fileFromHome} />
         <div className="sidebar-foot">
           <button className="mono-btn" aria-current={view?.kind === "feedback" || undefined} onClick={() => go({ kind: "feedback" })}>
             Feedback
@@ -692,6 +715,24 @@ export default function App() {
         )}
       </main>
 
+      {!proposal && !noteProposal && (
+        <ClaudeBubble
+          open={chatOpen}
+          onOpen={() => setChatOpen(true)}
+          onClose={() => setChatOpen(false)}
+          aboveAsk={view?.kind === "op"}
+          busy={ai.busy && ai.where === "home"}
+          note={ai.where === "home" ? ai.note : null}
+          error={ai.error}
+          onSend={fileFromHome}
+          chat={chat}
+          onClear={() => setChat([])}
+          onOpenOp={(id) => {
+            setChatOpen(false);
+            go({ kind: "op", id });
+          }}
+        />
+      )}
       {noteProposal && (
         <NoteProposalSheet
           instruction={noteProposal.instruction}

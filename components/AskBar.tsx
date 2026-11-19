@@ -10,10 +10,12 @@ type Props = {
   note?: string | null;
   error?: boolean;
   onSend: (text: string) => void;
+  id?: string;
+  autoFocus?: boolean;
 };
 
 /** Type or dictate a change for Claude. */
-export default function AskBar({ placeholder, busy, note, error, onSend }: Props) {
+export default function AskBar({ placeholder, busy, note, error, onSend, id = "ask", autoFocus }: Props) {
   const [text, setText] = useState("");
   const dict = useDictation((phrase) => setText((t) => (t ? `${t} ${phrase}` : phrase)));
 
@@ -40,7 +42,8 @@ export default function AskBar({ placeholder, busy, note, error, onSend }: Props
         }}
       >
         <textarea
-          id="ask"
+          id={id}
+          autoFocus={autoFocus}
           rows={1}
           value={text}
           placeholder={placeholder}
