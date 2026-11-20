@@ -2440,10 +2440,6 @@ details[open] > summary .chev {
   animation: breathe 1.6s ease-in-out infinite;
 }
 
-/* On an operation, sit above its own ask bar. */
-.chat-bubble[data-above-ask] {
-  bottom: 96px;
-}
 
 .chat-drawer {
   position: fixed;
@@ -2452,7 +2448,8 @@ details[open] > summary .chev {
   z-index: 55;
   display: flex;
   flex-direction: column;
-  width: min(440px, calc(100vw - 32px));
+  width: min(640px, calc(100vw - 48px));
+  height: min(820px, calc(100dvh - 124px));
   background: var(--paper);
   border: 1px solid var(--hairline);
   border-radius: 14px;
@@ -2462,9 +2459,6 @@ details[open] > summary .chev {
   animation: pop-in 0.4s var(--ease) both;
 }
 
-.chat-drawer[data-above-ask] {
-  bottom: 164px;
-}
 
 @keyframes pop-in {
   from {
@@ -2516,15 +2510,14 @@ details[open] > summary .chev {
     right: 16px;
     bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   }
-  .chat-bubble[data-above-ask] {
-    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-  }
+  /* On a phone the chat takes almost the whole screen. */
   .chat-drawer {
-    right: 16px;
-    bottom: 84px;
-  }
-  .chat-drawer[data-above-ask] {
-    bottom: 156px;
+    left: 8px;
+    right: 8px;
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    height: auto;
   }
 }
 
@@ -2535,7 +2528,8 @@ details[open] > summary .chev {
 }
 
 .chat-log {
-  max-height: min(460px, calc(100dvh - 320px));
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.5rem 1.25rem;
   border-top: 1px solid var(--hairline);
@@ -2606,4 +2600,23 @@ details[open] > summary .chev {
 .create:disabled {
   opacity: 0.25;
   cursor: default;
+}
+
+.chat-empty {
+  padding: 0.75rem 0;
+  color: var(--graphite);
+}
+
+.chat-empty p {
+  margin: 0 0 0.5rem;
+}
+
+.chat-empty ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+
+.chat-a {
+  font-size: 1rem;
 }

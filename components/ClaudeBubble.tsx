@@ -10,8 +10,8 @@ type Props = {
   open: boolean;
   onOpen: () => void;
   onClose: () => void;
-  /** Lift the bubble clear of an operation's own ask bar. */
-  aboveAsk: boolean;
+  /** The operation on screen, if any. */
+  viewing: string | null;
   busy: boolean;
   note: string | null;
   error: boolean;
@@ -21,8 +21,8 @@ type Props = {
   onOpenOp: (id: string) => void;
 };
 
-/** A bubble that floats bottom right and opens the universal "add a learning" box as a card. */
-export default function ClaudeBubble({ open, onOpen, onClose, aboveAsk, busy, note, error, onSend, chat, onClear, onOpenOp }: Props) {
+/** The one Claude: a bubble bottom right that opens a large chat. It knows the page you're on and can reach every page. */
+export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, note, error, onSend, chat, onClear, onOpenOp }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
@@ -38,11 +38,11 @@ export default function ClaudeBubble({ open, onOpen, onClose, aboveAsk, busy, no
   return (
     <>
       {open && (
-        <aside className="chat-drawer" data-above-ask={aboveAsk || undefined} aria-label="Ask Claude">
+        <aside className="chat-drawer" aria-label="Ask Claude">
           <header className="chat-drawer-head">
             <div>
               <h2 className="label">Ask Claude</h2>
-              <p className="chat-drawer-sub">Ask about any operation, or add a learning: Claude finds the right page and shows you the change first.</p>
+              <p className="chat-drawer-sub">{viewing ? <>On {viewing}</> : "All operations"}</p>
             </div>
             <div className="chat-drawer-actions">
               {chat.length > 0 && (
@@ -55,37 +55,43 @@ export default function ClaudeBubble({ open, onOpen, onClose, aboveAsk, busy, no
               </button>
             </div>
           </header>
-          {chat.length > 0 && (
-            <div className="chat-log" ref={scroller}>
-              {chat.map((m, i) =>
-                m.role === "user" ? (
-                  <p key={i} className="chat-q">
-                    {m.content}
-                  </p>
-                ) : (
-                  <div key={i} className="chat-a">
-                    <Markdown>{m.content}</Markdown>
-                    {!!m.sources?.length && (
-                      <p className="chat-sources">
-                        From:{" "}
-                        {m.sources.map((src) => (
-                          <button key={src.id} className="mono-btn" onClick={() => onOpenOp(src.id)}>
-                            {src.name}
-                          </button>
-                        ))}
-                      </p>
-                    )}
-                  </div>
-                ),
-              )}
-            </div>
-          )}
-          <AskBar id="ask-any" autoFocus placeholder="Ask anything, or add a learning…" busy={busy} note={note} error={error} onSend={onSend} />
+          <div className="chat-log" ref={scroller}>
+            {chat.length === 0 && (
+              <div className="chat-empty">
+                <p>Ask about any operation, or tell me what to add or change. I&rsquo;ll draft it for you to accept.</p>
+                <ul>
+                  <li>{viewing ? "Add: keep the incision low if Mako" : "Add to TKR: keep the incision low if Mako"}</li>
+                  <li>{viewing ? "What are the key steps here?" : "What tip–apex distance for a DHS?"}</li>
+                  <li>Add a page for ankle arthroscopy</li>
+                </ul>
+              </div>
+            )}
+            {chat.map((m, i) =>
+              m.role === "user" ? (
+                <p key={i} className="chat-q">
+                  {m.content}
+                </p>
+              ) : (
+                <div key={i} className="chat-a">
+                  <Markdown>{m.content}</Markdown>
+                  {!!m.sources?.length && (
+                    <p className="chat-sources">
+                      {m.sources.map((src) => (
+                        <button key={src.id} className="mono-btn" onClick={() => onOpenOp(src.id)}>
+                          {src.name} →
+                        </button>
+                      ))}
+                    </p>
+                  )}
+                </div>
+              ),
+            )}
+          </div>
+          <AskBar id="ask-any" autoFocus placeholder={viewing ? "Ask, or say what to change…" : "Ask anything, or add a learning…"} busy={busy} note={note} error={error} onSend={onSend} />
         </aside>
       )}
       <button
         className="chat-bubble"
-        data-above-ask={aboveAsk || undefined}
         data-busy={busy || undefined}
         aria-label={open ? "Close" : "Ask Claude"}
         aria-expanded={open}

@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { IDLE_MS } from "@/lib/auth";
 import { matchLine, newId, searchText } from "@/lib/content";
 import type { Consultant, Feedback, Filters, Operation, OperationFields, Priority, Proposal, Settings } from "@/lib/types";
-import AskBar from "./AskBar";
 import FeedbackView from "./FeedbackView";
 import SettingsView from "./SettingsView";
 import OperationPage, { type Tab } from "./OperationPage";
@@ -49,8 +47,6 @@ const urlOf = (v: View) => (!v ? "/" : v.kind === "op" ? `/?op=${v.id}` : `/?${v
 /** "feedback: …" in any Claude bar adds to the feedback list instead. */
 const asFeedback = (text: string) => text.match(/^\s*(?:add\s+)?feedback\s*[:\-–]\s*([\s\S]+)/i)?.[1]?.trim() ?? null;
 
-/** Ping the server at most this often while you're using the page, so reading keeps it unlocked. */
-const PING_MS = 60_000;
 
 export default function App() {
   const [ops, setOpsState] = useState<Operation[] | null>(null);
@@ -61,6 +57,8 @@ export default function App() {
   };
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<View>(null);
+  const viewRef = useRef<View>(null);
+  viewRef.current = view;
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("steps");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
@@ -219,10 +217,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", on);
   }, []);
 
-  // ---------- Locking after 10 minutes without use ----------
+  // ---------- Locking (only when you press Lock) ----------
 
-  const lastUse = useRef(Date.now());
-  const lastPing = useRef(Date.now());
   const locking = useRef(false);
 
   const lock = useCallback(async () => {
@@ -235,33 +231,6 @@ export default function App() {
     await fetch("/api/logout", { method: "POST", keepalive: true }).catch(() => {});
     window.location.replace("/login");
   }, []);
-
-  useEffect(() => {
-    const used = () => {
-      const now = Date.now();
-      if (now - lastUse.current > IDLE_MS) return lock(); // came back to it too late
-      lastUse.current = now;
-      if (now - lastPing.current > PING_MS) {
-        lastPing.current = now;
-        fetch("/api/ping", { method: "POST" }).then((r) => {
-          if (r.status === 401) lock();
-        }, () => {});
-      }
-    };
-    const check = () => {
-      if (Date.now() - lastUse.current > IDLE_MS) lock();
-    };
-    const onVisible = () => document.visibilityState === "visible" && check();
-    const events = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
-    for (const e of events) window.addEventListener(e, used, { capture: true, passive: true });
-    document.addEventListener("visibilitychange", onVisible);
-    const t = setInterval(check, 15_000);
-    return () => {
-      for (const e of events) window.removeEventListener(e, used, { capture: true });
-      document.removeEventListener("visibilitychange", onVisible);
-      clearInterval(t);
-    };
-  }, [lock]);
 
   // ---------- Saving: every change saves itself shortly after ----------
 
@@ -367,18 +336,20 @@ export default function App() {
 
   // ---------- Claude ----------
 
-  const proposeNote = async (target: Operation, instruction: string) => {
+  const proposeNote = async (target: Operation, instruction: string, shown = instruction): Promise<boolean> => {
     if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
-    setAi({ busy: true, note: "Claude is working on it…", error: false, where: "op" });
+    setAi({ busy: true, note: `Drafting the change to ${target.name}…`, error: false, where: "home" });
     try {
       const r = await api<{ proposal: { summary: string[]; html: string; before: string } }>(`/api/operations/${target.id}/note-ai`, {
         method: "POST",
         body: { instruction },
       });
-      setNoteProposal({ opId: target.id, instruction, ...r.proposal });
-      setAi({ busy: false, note: null, error: false, where: "op" });
+      setNoteProposal({ opId: target.id, instruction: shown, ...r.proposal });
+      setAi({ busy: false, note: null, error: false, where: "home" });
+      return true;
     } catch (e) {
-      setAi({ busy: false, note: (e as Error).message, error: true, where: "op" });
+      setAi({ busy: false, note: (e as Error).message, error: true, where: "home" });
+      return false;
     }
   };
 
@@ -387,19 +358,22 @@ export default function App() {
     const { opId, html } = noteProposal;
     change(opId, (f) => ({ ...f, content: { ...f.content, note: html } }));
     setNoteProposal(null);
+    setChat((c) => (c.length ? [...c, { role: "assistant", content: "Saved." }] : c));
     setToast({ text: "Saved", undoId: opId });
   };
 
-  const propose = async (target: Operation, instruction: string) => {
-    if (mode === "simple") return proposeNote(target, instruction);
+  const propose = async (target: Operation, instruction: string, shown = instruction): Promise<boolean> => {
+    if (mode === "simple") return proposeNote(target, instruction, shown);
     if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
-    setAi({ busy: true, note: "Claude is working on it…", error: false, where: "op" });
+    setAi({ busy: true, note: `Drafting the change to ${target.name}…`, error: false, where: "home" });
     try {
       const r = await api<{ proposal: Proposal }>(`/api/operations/${target.id}/ai`, { method: "POST", body: { instruction } });
-      setProposal({ opId: target.id, instruction, proposal: r.proposal });
-      setAi({ busy: false, note: null, error: false, where: "op" });
+      setProposal({ opId: target.id, instruction: shown, proposal: r.proposal });
+      setAi({ busy: false, note: null, error: false, where: "home" });
+      return true;
     } catch (e) {
-      setAi({ busy: false, note: (e as Error).message, error: true, where: "op" });
+      setAi({ busy: false, note: (e as Error).message, error: true, where: "home" });
+      return false;
     }
   };
 
@@ -430,43 +404,44 @@ export default function App() {
     api(`/api/feedback/${id}`, { method: "DELETE" }).catch((e: Error) => setToast({ text: e.message }));
   };
 
-  const fileFromHome = async (text: string) => {
+  /** The one Claude, in the bubble: answers questions, or drafts a change to any page (the one you're on by default). */
+  const askClaude = async (text: string) => {
     const fb = asFeedback(text);
-    if (fb) {
-      setChatOpen(false);
-      return addFeedback(fb);
-    }
+    if (fb) return addFeedback(fb);
+    const earlier = chatRef.current;
+    const history: ChatMsg[] = [...earlier, { role: "user", content: text }];
+    setChat(history);
+    const say = (content: string, sources?: { id: string; name: string }[]) => setChat((c) => [...c, { role: "assistant", content, ...(sources ? { sources } : {}) }]);
+    const currentId = viewRef.current?.kind === "op" ? viewRef.current.id : null;
     setAi({ busy: true, note: "Thinking…", error: false, where: "home" });
     try {
-      const earlier = chatRef.current;
       const context = earlier.slice(-6).map((m) => `${m.role === "user" ? "Surgeon" : "Claude"}: ${m.content}`).join("\n");
-      const r = await api<{ intent: "learning" | "question"; relevantIds: string[]; operationId: string | null; newName: string | null; region: string | null }>(
+      const r = await api<{ intent: "change" | "question"; relevantIds: string[]; operationId: string | null; newName: string | null; region: string | null }>(
         "/api/route-learning",
-        { method: "POST", body: { text, context } },
+        { method: "POST", body: { text, context, currentId } },
       );
       if (r.intent === "question") {
-        const history = [...earlier, { role: "user" as const, content: text }];
-        setChat(history);
         setAi({ busy: true, note: "Reading your notes…", error: false, where: "home" });
         const a = await api<{ answer: string; sources: { id: string; name: string }[] }>("/api/ask", {
           method: "POST",
-          body: { history: history.map(({ role, content }) => ({ role, content })), opIds: r.relevantIds },
+          body: { history: history.map(({ role, content }) => ({ role, content })), opIds: r.relevantIds, currentId },
         });
-        setChat([...history, { role: "assistant", content: a.answer, sources: a.sources }]);
+        say(a.answer, a.sources);
         setAi({ busy: false, note: null, error: false, where: "home" });
         return;
       }
-      setAi({ busy: true, note: "Finding the operation…", error: false, where: "home" });
-      let target = opsRef.current?.find((o) => o.id === r.operationId) ?? null;
+      let target = opsRef.current?.find((o) => o.id === (r.operationId ?? (r.newName ? null : currentId))) ?? null;
       if (!target) {
-        if (!r.newName) throw new Error("Couldn't tell which operation this is about. Open it and add it there.");
+        if (!r.newName) throw new Error("Couldn't tell which operation this is about. Name it, or open its page first.");
         const made = await api<{ operation: Operation }>("/api/operations", { method: "POST", body: { name: r.newName, region: r.region ?? "Other" } });
         target = made.operation;
         replaceOp(target);
+        say(`Made a new page: **${target.name}**. Drafting it now…`);
       }
-      setChatOpen(false);
-      go({ kind: "op", id: target.id });
-      await propose(target, text);
+      if (target.id !== currentId) go({ kind: "op", id: target.id });
+      const instruction = context ? `${text}\n\n<earlier_conversation>\n${context}\n</earlier_conversation>` : text;
+      const ok = await propose(target, instruction, text);
+      if (ok) say(`Drafted a change to **${target.name}**. Check it and accept or discard.`, [{ id: target.id, name: target.name }]);
     } catch (e) {
       setAi({ busy: false, note: (e as Error).message, error: true, where: "home" });
     }
@@ -484,6 +459,7 @@ export default function App() {
       if (before) pushUndo(before);
       replaceOp(r.operation);
       setProposal(null);
+      setChat((c) => (c.length ? [...c, { role: "assistant", content: "Saved." }] : c));
       setToast({ text: "Saved", undoId: proposal.opId });
     } catch (e) {
       setToast({ text: (e as Error).message });
@@ -664,17 +640,6 @@ export default function App() {
               onBack={back}
             />
             )}
-            <AskBar
-              placeholder="Ask Claude to add or change something…"
-              busy={ai.busy && ai.where === "op"}
-              note={ai.where === "op" ? ai.note : null}
-              error={ai.error}
-              onSend={(text) => {
-                const fb = asFeedback(text);
-                if (fb) addFeedback(fb);
-                else propose(op, text);
-              }}
-            />
           </>
         )}
       </main>
@@ -684,11 +649,11 @@ export default function App() {
           open={chatOpen}
           onOpen={() => setChatOpen(true)}
           onClose={() => setChatOpen(false)}
-          aboveAsk={view?.kind === "op"}
-          busy={ai.busy && ai.where === "home"}
-          note={ai.where === "home" ? ai.note : null}
+          viewing={view?.kind === "op" ? (ops?.find((o) => o.id === view.id)?.name ?? null) : null}
+          busy={ai.busy}
+          note={ai.note}
           error={ai.error}
-          onSend={fileFromHome}
+          onSend={askClaude}
           chat={chat}
           onClear={() => setChat([])}
           onOpenOp={(id) => {
@@ -704,7 +669,10 @@ export default function App() {
           before={noteProposal.before}
           after={noteProposal.html}
           onAccept={acceptNote}
-          onDiscard={() => setNoteProposal(null)}
+          onDiscard={() => {
+            setNoteProposal(null);
+            setChat((c) => (c.length ? [...c, { role: "assistant", content: "Discarded. Nothing changed." }] : c));
+          }}
         />
       )}
 
@@ -716,7 +684,10 @@ export default function App() {
           proposal={proposal.proposal}
           busy={accepting}
           onAccept={accept}
-          onDiscard={() => setProposal(null)}
+          onDiscard={() => {
+            setProposal(null);
+            setChat((c) => (c.length ? [...c, { role: "assistant", content: "Discarded. Nothing changed." }] : c));
+          }}
         />
       )}
 

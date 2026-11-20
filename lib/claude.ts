@@ -151,39 +151,50 @@ export async function proposeEdit(op: Operation, instruction: string, standing =
 
 const Route = z.object({
   intent: z
-    .enum(["learning", "question"])
-    .describe("question: the surgeon is asking something and wants an answer. learning: a tip, step or change to file on a page."),
+    .enum(["change", "question"])
+    .describe(
+      "question: the surgeon is asking something and wants an answer, with nothing saved. change: anything to add to or change on a page: a tip, a step, a learning, a tidy-up, videos or links, or writing up a new operation.",
+    ),
   relevant_operation_ids: z
     .array(z.string())
     .describe("For a question: ids of up to 4 existing operations whose pages help answer it (empty if none)."),
-  operation_id: z.string().nullable().describe("The id of the existing operation this is about, or null if none fits."),
+  operation_id: z
+    .string()
+    .nullable()
+    .describe("For a change: the id of the existing operation to change, or null if it needs a new page."),
   new_operation_name: z
     .string()
     .nullable()
-    .describe("If no existing operation fits, the name for a new one as a surgeon would write it, e.g. 'Total Knee Replacement'. Otherwise null."),
-  region: z.string().nullable().describe("For a new operation: Hip, Knee, Foot & ankle, Shoulder & elbow, Hand & wrist, Spine, Paeds or Skills & approaches (approaches, positioning, ex-fix, suturing, metalwork removal and other general skills). Trauma and elective go by body region."),
+    .describe("For a change that needs a new page: its name as a surgeon would write it, e.g. 'Total Knee Replacement'. Otherwise null."),
+  region: z
+    .string()
+    .nullable()
+    .describe(
+      "For a new page: Hip, Knee, Foot & ankle, Shoulder & elbow, Hand & wrist, Spine, Paeds or Skills & approaches (approaches, positioning, ex-fix, suturing, metalwork removal and other general skills). Trauma and elective go by body region.",
+    ),
 });
 
-export async function routeLearning(text: string, ops: { id: string; name: string }[], context = "") {
+export async function routeLearning(text: string, ops: { id: string; name: string }[], context = "", current: { id: string; name: string } | null = null) {
   const response = await anthropic().messages.parse({
     model: HAIKU,
     max_tokens: 2000,
     system:
-      "A T&O surgeon typed something into their operations notebook. First decide whether it is a question to answer or a learning to file. Then pick which of their existing operations it is about. Match loosely: abbreviations (TKR, DHS, THR, ORIF), sides and implant names all point to the operation. For a learning, only suggest a new operation if none fits. For a question, list the operations whose pages help answer it; earlier conversation is given for follow-ups.",
+      "A T&O surgeon typed something to the assistant in their operations notebook. First decide whether it is a question to answer or a change to make to a page. Then pick which of their operations it is about. Match loosely: abbreviations (TKR, DHS, THR, ORIF), sides and implant names all point to the operation. If they are viewing a page and don't name another operation, it is about the page they are on ('this', 'here', 'add that' all mean that page). Only suggest a new page if they ask for one or nothing fits. For a question, list the operations whose pages help answer it, including the page they are on if it's relevant. Earlier conversation is given for follow-ups.",
     output_config: { effort: "low", format: zodOutputFormat(Route) },
     messages: [
       {
         role: "user",
-        content: `<operations>\n${ops.map((o) => `${o.id}: ${o.name}`).join("\n") || "(none yet)"}\n</operations>\n\n${context ? `<earlier_conversation>\n${context}\n</earlier_conversation>\n\n` : ""}<note>\n${text}\n</note>`,
+        content: `<operations>\n${ops.map((o) => `${o.id}: ${o.name}`).join("\n") || "(none yet)"}\n</operations>\n\n${current ? `<viewing>\n${current.id}: ${current.name}\n</viewing>\n\n` : ""}${context ? `<earlier_conversation>\n${context}\n</earlier_conversation>\n\n` : ""}<message>\n${text}\n</message>`,
       },
     ],
   });
   const out = response.parsed_output;
-  if (!out) throw new Error("Couldn't tell which operation this is about");
+  if (!out) throw new Error("Couldn't tell what this is about");
+  const known = (id: string | null) => (id && ops.some((o) => o.id === id) ? id : null);
   return {
     intent: out.intent,
-    relevantIds: out.relevant_operation_ids.filter((id) => ops.some((o) => o.id === id)).slice(0, 4),
-    operationId: out.operation_id && ops.some((o) => o.id === out.operation_id) ? out.operation_id : null,
+    relevantIds: out.relevant_operation_ids.filter((id) => known(id)).slice(0, 4),
+    operationId: known(out.operation_id),
     newName: out.new_operation_name?.trim() || null,
     region: out.region?.trim() || null,
   };
@@ -193,14 +204,15 @@ export async function routeLearning(text: string, ops: { id: string; name: strin
 
 const ASK_SYSTEM = `You answer questions from a UK trauma & orthopaedic surgeon about operations, using their own operations notebook.
 
+- The surgeon may be viewing one page (<viewing>); "this" means that operation.
 - The <pages> are the surgeon's own notes for the relevant operations: steps, tips per kit, mode and consultant, videos, links and Q&A. Base the answer on them first, and say which operation a point comes from when that helps.
 - If the notes don't cover it, say so briefly, then answer from your own knowledge, clearly marked as not from their notes. Search the web only when the answer needs a current source, a video or a link, and only use URLs from your search results.
 - Be terse and practical, like a senior colleague in theatre. Short bullet points. British spelling. Markdown only for bullets, bold and links.
-- Never change anything; if they want something added, tell them to say it as a learning (e.g. "Add to TKR: …").`;
+- You can't change pages in this reply. If they want something added, tell them to just ask (e.g. "add that to the page") and it will be drafted for them to accept.`;
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-export async function answerQuestion(history: ChatTurn[], pages: Operation[], allNames: string[]): Promise<string> {
+export async function answerQuestion(history: ChatTurn[], pages: Operation[], allNames: string[], viewing: string | null = null): Promise<string> {
   const pagesText = pages.map((op) => `<page>\n${pageText(op)}\n</page>`).join("\n") || "(no relevant pages found)";
   const turns = history.slice(-10);
   const last = turns[turns.length - 1];
@@ -208,7 +220,7 @@ export async function answerQuestion(history: ChatTurn[], pages: Operation[], al
     ...turns.slice(0, -1).map((t) => ({ role: t.role, content: t.content })),
     {
       role: "user",
-      content: `<all_operations>\n${allNames.join("\n")}\n</all_operations>\n\n<pages>\n${pagesText}\n</pages>\n\n<question>\n${last.content}\n</question>`,
+      content: `<all_operations>\n${allNames.join("\n")}\n</all_operations>\n\n${viewing ? `<viewing>${viewing}</viewing>\n\n` : ""}<pages>\n${pagesText}\n</pages>\n\n<question>\n${last.content}\n</question>`,
     },
   ];
   let answer = "";

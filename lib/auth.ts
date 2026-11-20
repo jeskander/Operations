@@ -1,15 +1,13 @@
-// Single-surgeon sign-in that locks after IDLE_MINUTES without use.
-// The cookie holds only a signed timestamp of the last use, never the password. It has no expiry
-// date, so the browser drops it when it closes, and the server refuses it once it's IDLE_MINUTES
-// old. Every request renews it, and the open page pings while you read, so it only lapses when
-// the app is genuinely left alone. Signed with APP_PASSWORD: changing it signs every device out.
+// Single-surgeon sign-in. It stays unlocked until you press Lock (or go a year without opening it).
+// The cookie holds only a signed timestamp of the last use, never the password, and is renewed as
+// you use the app. Signed with APP_PASSWORD: changing it signs every device out.
 // Runs in Edge and Node.
 
 export const SESSION_COOKIE = "op_session";
-export const IDLE_MINUTES = 10;
-export const IDLE_MS = IDLE_MINUTES * 60_000;
+const MAX_AGE_S = 365 * 24 * 60 * 60;
+const MAX_AGE_MS = MAX_AGE_S * 1000;
 /** Renew the cookie once it's older than this. */
-const RENEW_MS = 30_000;
+const RENEW_MS = 24 * 60 * 60 * 1000;
 
 async function sign(password: string, at: number): Promise<string> {
   const enc = new TextEncoder();
@@ -29,7 +27,7 @@ export async function tokenAge(password: string, token: string | undefined): Pro
   const at = Number(rawAt);
   if (!sig || !Number.isFinite(at)) return null;
   const age = Date.now() - at;
-  if (age < 0 || age > IDLE_MS) return null;
+  if (age < 0 || age > MAX_AGE_MS) return null;
   const expected = await sign(password, at);
   if (expected.length !== sig.length) return null;
   let diff = 0;
@@ -39,6 +37,5 @@ export async function tokenAge(password: string, token: string | undefined): Pro
 
 export const needsRenewal = (age: number) => age > RENEW_MS;
 
-/** No Max-Age: the browser forgets it when it closes. */
-export const sessionCookie = (token: string) => `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+export const sessionCookie = (token: string) => `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${MAX_AGE_S}`;
 export const clearCookie = `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;

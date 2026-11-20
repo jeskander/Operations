@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { IDLE_MINUTES } from "@/lib/auth";
 import type { Settings } from "@/lib/types";
 import VersionSwitch, { type Version } from "./VersionSwitch";
 
@@ -119,8 +118,8 @@ export default function SettingsView({ settings, onSave, onLock, onBack, dark, o
         <div className="setting">
           <p className="label">Security</p>
           <p className="hint">
-            The app locks after {IDLE_MINUTES} minutes without use, and when the browser closes. The password is never stored on this device: only a
-            signed note of when you last used the app, which the server refuses once it&rsquo;s {IDLE_MINUTES} minutes old.
+            The app stays unlocked on this device until you press Lock. The password is never stored on this device: only a signed note that
+            you signed in, which stops working if the password is changed.
           </p>
           <div>
             <button className="mono-btn" data-boxed="" onClick={onLock}>
