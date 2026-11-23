@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { BetaMessageParam, BetaToolUnion } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { z } from "zod";
-import { normalize } from "./content";
+import { applyEdits, pageOutline, type Edit } from "./edits";
 import type { Consultant, Operation, Proposal } from "./types";
 
 const MODEL = "claude-opus-5-5";
@@ -34,74 +34,102 @@ const obj = (properties: Record<string, unknown>, description?: string) => ({
 });
 const list = (items: unknown, description?: string) => ({ type: "array", items, ...(description ? { description } : {}) });
 
-const PROPOSE_TOOL: BetaToolUnion = {
-  name: "propose_page",
-  description: "Submit the whole operation page with the surgeon's instruction applied. Call exactly once, last.",
-  strict: true,
-  input_schema: obj({
-    summary: list(s, "Each change you made, one short line each, e.g. 'Approach: added \"keep incision low for Mako\" [Mako]'. Empty if nothing changed."),
-    name: s,
-    region: s,
-    subtitle: { type: "string", description: "A few words under the name in the list, e.g. 'Attune · Medacta · Mako'." },
-    new_consultants: list(obj({ id: s, name: s }), "Consultants not yet in this page's consultants list that this change mentions. Give each a new id and use it on items."),
-    kits: list(obj({ id: s, name: s, maker: s, url: { type: "string", description: "Op tech link, or empty." } })),
-    techniques: list(obj({ id: s, name: s }), "e.g. Conventional, Robotic (Mako). Only when steps differ by technique."),
-    blocks: list(
-      obj({
-        id: s,
-        type: { type: "string", enum: ["toggle", "heading", "bullet", "number", "text", "todo", "quote", "code", "divider", "image"] },
-        text: { type: "string", description: "Short. **bold** and *italic* allowed." },
-        depth: { type: "integer", description: "Nesting: 0 at the top, or at most one more than the block above it." },
-        kit: { ...sOrNull, description: "A kit id if this block (and everything nested in it) applies only to that kit" },
-        technique: { ...sOrNull, description: "A technique (mode) id if only for that technique" },
-        consultant: { ...sOrNull, description: "A consultant id if only for that consultant" },
-        level: { type: ["integer", "null"], description: "Heading level 1-3 for a heading; null otherwise" },
-        checked: { type: ["boolean", "null"], description: "Whether a to-do is ticked; null otherwise" },
-        url: { ...sOrNull, description: "An image's address (keep existing ones as they are); null otherwise" },
-      }),
-      "The steps of the operation as blocks in reading order.",
-    ),
-    videos: list(obj({ id: s, title: s, url: s, source: s, note: s, group: { type: "string", enum: ["full", "other"] } })),
-    links: list(obj({ id: s, title: s, url: s, source: s, note: s })),
-    questions: list(obj({ id: s, q: s, a: { type: "string", description: "Markdown answer; tables allowed." } })),
-  }) as never,
+const NEW_BLOCK = {
+  type: "object",
+  properties: {
+    id: { type: "string", description: "Leave out for a new line. Only give an existing id when re-placing that same line in a rewritten section." },
+    type: { type: "string", enum: ["toggle", "heading", "bullet", "number", "text", "todo", "quote", "code", "divider"] },
+    text: { type: "string", description: "Short. **bold** and *italic* allowed." },
+    depth: { type: "integer", description: "Relative nesting: 0 = the level of the place it goes, 1 = nested under the line before it, and so on." },
+    kit: { type: ["string", "null"] },
+    technique: { type: ["string", "null"], description: "A mode id" },
+    consultant: { type: ["string", "null"] },
+    level: { type: ["integer", "null"], description: "1-3 for a heading" },
+  },
+  required: ["type", "text", "depth"],
+};
+
+const EDIT_TOOL: BetaToolUnion = {
+  name: "edit_page",
+  description: "Submit the edits that apply the surgeon's message to the page. Call exactly once, last.",
+  input_schema: {
+    type: "object",
+    properties: {
+      summary: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "What you did, one short line each, saying where: 'Approach: added \"keep incision low\" [Mako]', 'Removed from Draping: \"cut the U drape\" (no longer done)', 'Tibial cut: changed 10 mm → 9 mm', 'Moved Patella before Femur'. Last, anything you weren't sure about or couldn't place, starting 'Check:'. Empty if nothing changed.",
+      },
+      edits: {
+        type: "array",
+        description: "Applied in order. Line ids are the [ids] in the page outline.",
+        items: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: ["insert", "update", "delete", "move", "replace_section", "replace_all_blocks", "add_item", "update_item", "remove_item", "set_page"],
+              description:
+                "insert: new lines at a place. update: change one line's text, type or tags (leave out fields you're not changing; null clears a tag). delete: remove a line and everything nested in it. move: move a line with everything nested in it to a place. replace_section: rewrite one line and everything nested in it (use to reorganise a part). replace_all_blocks: rewrite all the steps (only to restructure the whole operation, or to write up an empty page). add_item / update_item / remove_item: kits, modes, consultants, videos, links or questions. set_page: name, region or subtitle.",
+            },
+            id: { type: "string", description: "The line (or list item) this edit is about." },
+            after: { type: "string", description: "Place: straight after this line and everything nested in it, at the same level." },
+            before: { type: "string", description: "Place: just before this line, at the same level." },
+            inside: { type: "string", description: "Place: nested inside this line (a part or sub-part), at its end unless at is 'start'." },
+            at: { type: "string", enum: ["start", "end"] },
+            blocks: { type: "array", items: NEW_BLOCK, description: "For insert, replace_section and replace_all_blocks." },
+            text: { type: "string" },
+            type: { type: "string" },
+            kit: { type: ["string", "null"] },
+            technique: { type: ["string", "null"] },
+            consultant: { type: ["string", "null"] },
+            level: { type: ["integer", "null"] },
+            checked: { type: ["boolean", "null"] },
+            list: { type: "string", enum: ["kits", "techniques", "consultants", "videos", "links", "questions"] },
+            item: {
+              type: "object",
+              description:
+                "kits {id, name, maker, url}; techniques {id, name}; consultants {id, name}; videos {title, url, source, note, group: 'full'|'other'}; links {title, url, source, note}; questions {q, a}. New kits, modes and consultants need an id you choose (8 lowercase letters/digits) so lines can be tagged with it.",
+            },
+            name: { type: "string" },
+            region: { type: "string" },
+            subtitle: { type: "string" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    required: ["summary", "edits"],
+  } as never,
 };
 
 const SYSTEM = `You keep a UK trauma & orthopaedic surgeon's personal notes on operations. Each operation is one page:
-- blocks: the steps, Notion-style, as a flat list in reading order. depth nests a block inside the nearest shallower block above it. Top-level toggles (type "toggle", depth 0) are the parts of the operation in the order they happen (e.g. Pre-op & huddle, Position & draping, Approach, then the operation's own steps, Closure, Post-op), with bullet or numbered blocks nested inside them (depth 1, deeper for sub-points). A toggle nested in a part is a sub-part (e.g. Procedure › Insert guide wire).
-- Any block can be tagged for one kit, one technique (mode, e.g. robotic vs conventional) or one consultant; it and everything nested in it then show only when that one is chosen. Tag a whole part by tagging its toggle. Blocks that apply to everyone have no tag.
-- kits: implant systems used for this operation, each with its op tech link.
-- videos (group "full" for the operation being performed, "other" for anything else), links (AO Surgery Reference, approaches, op note templates…), questions: the knowledge relevant to this case, as questions a consultant would ask, with answers.
+- steps: Notion-style lines, nested by indentation. Top-level toggles are the parts of the operation in the order they happen (e.g. Pre-op & huddle, Position & draping, Approach, then the operation's own stages, Closure, Post-op), with bullets or numbered lines inside them, deeper for sub-points. A toggle inside a part is a sub-part (e.g. Procedure › Insert guide wire).
+- Any line can be tagged for one kit, one mode (e.g. Mako vs conventional) or one consultant; it and everything nested in it then show only when that one is chosen. Tag a whole part by tagging its toggle. Lines that apply to everyone have no tag.
+- kits: implant systems with their op tech link. videos, links, and questions: knowledge as questions a consultant would ask, with answers.
 
-Apply the surgeon's instruction to the page and submit the whole page with propose_page.
-- Change only what the instruction asks. Keep every other id, line and wording exactly as it is.
-- File each learning in the right part, at the right point in the order, in the surgeon's own terse style. Use British spelling.
-- If a learning applies to one kit, technique or consultant, mark it with that id. Add a kit, technique or consultant if it doesn't exist yet. New things get new ids: 8 random lowercase letters and digits.
-- Don't merge, reword or tidy lines you weren't asked to touch.
+The surgeon usually dictates a debrief after doing the operation: a long, loosely spoken message mixing steps, tips, corrections, consultant preferences and things they didn't know. Apply it to the page with edit_page.
+
+How to file a debrief:
+- Split it into separate points. Put each in the right part, at the right point in the order, in the surgeon's terse theatre style: one action per line, the reason or trick in brackets, real numbers. British spelling. Don't copy the spoken wording or filler.
+- Skip points the page already says. If a point adds detail to an existing line, update that line rather than adding a near-duplicate.
+- The message is the latest truth. If it corrects or contradicts the page, update or delete the old line; don't keep both. If it says something is no longer done, delete it.
+- If the message describes the steps in a different order from the page, move lines or parts to match. To reorganise a whole part, use replace_section; to restructure the whole operation, replace_all_blocks.
+- "Mr X likes…", "for Kyani…": tag that line with the consultant (add them to consultants if new). Same for a kit or mode.
+- "I didn't know…", "he asked me…": add a question with a short accurate answer.
+- Only change what the message is about. Leave every other line exactly as it is. If you're unsure whether a line is outdated or just not mentioned, keep it and say so in the summary.
+- If something can't be placed or is ambiguous, file your best guess and list it under 'Check:' in the summary.
+
+Other messages ("tidy the approach", "add videos", "write up X"): do just that.
 - Search the web only when asked for videos, links or op techs, and only use URLs that appeared in your search results. Never write a URL from memory.
-- When asked to write knowledge or steps, be accurate and say so in the summary if something needs checking.
-- If the instruction is only a question, answer it in the summary and leave the page unchanged.`;
+- When writing steps or knowledge, be accurate and flag anything that needs checking.
+- If the message is only a question, answer it in the summary and make no edits.`;
 
 const webSearch: BetaToolUnion = { type: "web_search_20260209", name: "web_search", max_uses: 8 };
 
-type ProposeInput = {
-  summary: string[];
-  name: string;
-  region: string;
-  subtitle: string;
-  new_consultants: Consultant[];
-  kits: unknown;
-  techniques: unknown;
-  blocks: unknown;
-  videos: unknown;
-  links: unknown;
-  questions: unknown;
-};
-
 function pageText(op: Operation): string {
-  const { content, name, region, subtitle } = op;
-  const { note: _note, debriefs: _debriefs, ...rest } = content;
-  return JSON.stringify({ name, region, subtitle, ...rest });
+  return pageOutline(op);
 }
 
 export async function proposeEdit(op: Operation, instruction: string, standing = ""): Promise<Proposal> {
@@ -109,7 +137,7 @@ export async function proposeEdit(op: Operation, instruction: string, standing =
   const messages: BetaMessageParam[] = [
     {
       role: "user",
-      content: `<page>\n${pageText(op)}\n</page>\n\n<instruction>\n${instruction}\n</instruction>`,
+      content: `<page>\n${pageText(op)}\n</page>\n\n<message>\n${instruction}\n</message>`,
     },
   ];
 
@@ -120,30 +148,24 @@ export async function proposeEdit(op: Operation, instruction: string, standing =
       ...FALLBACK,
       system,
       output_config: { effort: "medium" },
-      tools: [webSearch, PROPOSE_TOOL],
+      tools: [webSearch, EDIT_TOOL],
       messages,
     }).finalMessage();
     if (response.stop_reason === "refusal") throw new Error("Claude declined this change.");
-    if (response.stop_reason === "max_tokens") throw new Error("The page ran too long for one change.");
+    if (response.stop_reason === "max_tokens") throw new Error("That change was too long to make in one go. Try it a part at a time.");
 
-    const call = response.content.find((b) => b.type === "tool_use" && b.name === "propose_page");
+    const call = response.content.find((b) => b.type === "tool_use" && b.name === "edit_page");
     if (call && call.type === "tool_use") {
-      const input = call.input as ProposeInput;
-      const fresh = Array.isArray(input.new_consultants) ? input.new_consultants.filter((c) => c?.id && c?.name) : [];
-      const content = normalize(input);
-      content.note = op.content.note;
-      content.debriefs = op.content.debriefs;
-      content.consultants = [...op.content.consultants, ...fresh.filter((c) => !op.content.consultants.some((o) => o.id === c.id))];
-      return {
-        summary: Array.isArray(input.summary) ? input.summary.filter((x) => typeof x === "string") : [],
-        operation: { name: input.name || op.name, region: input.region || op.region, subtitle: input.subtitle ?? op.subtitle, content },
-        newConsultants: fresh,
-      };
+      const input = call.input as { summary?: unknown; edits?: Edit[] };
+      const { fields, problems } = applyEdits(op, Array.isArray(input.edits) ? input.edits : []);
+      const summary = Array.isArray(input.summary) ? input.summary.filter((x): x is string => typeof x === "string") : [];
+      if (problems.length) summary.push(`Check: some edits were skipped (${problems.slice(0, 3).join("; ")}).`);
+      return { summary, operation: fields, newConsultants: [] };
     }
 
     messages.push({ role: "assistant", content: response.content });
     // A long web search pauses the turn; otherwise remind it to submit.
-    if (response.stop_reason !== "pause_turn") messages.push({ role: "user", content: "Call propose_page now with the whole page." });
+    if (response.stop_reason !== "pause_turn") messages.push({ role: "user", content: "Call edit_page now with your edits." });
   }
   throw new Error("Claude didn't finish the change.");
 }
