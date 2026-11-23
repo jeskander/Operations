@@ -2620,3 +2620,12 @@ details[open] > summary .chev {
 .chat-a {
   font-size: 1rem;
 }
+
+/* What Claude just changed on the page. */
+:root {
+  --claude-mark: rgb(245 197 66 / 0.22);
+}
+
+:root[data-theme="dark"] {
+  --claude-mark: rgb(245 197 66 / 0.16);
+}

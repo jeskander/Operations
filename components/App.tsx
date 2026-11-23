@@ -7,9 +7,8 @@ import type { Consultant, Feedback, Filters, Operation, OperationFields, Priorit
 import FeedbackView from "./FeedbackView";
 import SettingsView from "./SettingsView";
 import OperationPage, { type Tab } from "./OperationPage";
-import ProposalSheet from "./ProposalSheet";
 import ClaudeBubble, { type ChatMsg } from "./ClaudeBubble";
-import SimplePage, { NoteProposalSheet } from "./SimplePage";
+import SimplePage from "./SimplePage";
 import type { Version } from "./VersionSwitch";
 
 const NO_FILTERS: Filters = { kit: "", technique: "", consultant: "" };
@@ -72,8 +71,6 @@ export default function App() {
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const chatRef = useRef<ChatMsg[]>([]);
   chatRef.current = chat;
-  const [proposal, setProposal] = useState<{ opId: string; instruction: string; proposal: Proposal } | null>(null);
-  const [noteProposal, setNoteProposal] = useState<{ opId: string; instruction: string; summary: string[]; html: string; before: string } | null>(null);
   // Simple (one note) or full (steps, tabs, tags). Kept per device; simple unless switched.
   // Simple (one note), Notion-style or Classic (the full page with either steps editor). Kept per device.
   const [mode, setModeState] = useState<Version>("notion");
@@ -89,7 +86,6 @@ export default function App() {
       localStorage.setItem("op-version", m);
     } catch {}
   };
-  const [accepting, setAccepting] = useState(false);
   const [toast, setToast] = useState<{ text: string; undoId?: string } | null>(null);
   const [creating, setCreating] = useState<{ name: string; region: string } | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -336,45 +332,47 @@ export default function App() {
 
   // ---------- Claude ----------
 
-  const proposeNote = async (target: Operation, instruction: string, shown = instruction): Promise<boolean> => {
-    if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
-    setAi({ busy: true, note: `Drafting the change to ${target.name}…`, error: false, where: "home" });
-    try {
-      const r = await api<{ proposal: { summary: string[]; html: string; before: string } }>(`/api/operations/${target.id}/note-ai`, {
-        method: "POST",
-        body: { instruction },
-      });
-      setNoteProposal({ opId: target.id, instruction: shown, ...r.proposal });
-      setAi({ busy: false, note: null, error: false, where: "home" });
-      return true;
-    } catch (e) {
-      setAi({ busy: false, note: (e as Error).message, error: true, where: "home" });
-      return false;
-    }
-  };
+  /** Blocks Claude just added or changed, highlighted on the page until the next change. */
+  const [recent, setRecent] = useState<{ opId: string; ids: string[] } | null>(null);
+  const recentRef = useRef(recent);
+  recentRef.current = recent;
 
-  const acceptNote = () => {
-    if (!noteProposal) return;
-    const { opId, html } = noteProposal;
-    change(opId, (f) => ({ ...f, content: { ...f.content, note: html } }));
-    setNoteProposal(null);
-    setChat((c) => (c.length ? [...c, { role: "assistant", content: "Saved." }] : c));
-    setToast({ text: "Saved", undoId: opId });
-  };
-
-  const propose = async (target: Operation, instruction: string, shown = instruction): Promise<boolean> => {
-    if (mode === "simple") return proposeNote(target, instruction, shown);
+  /** Claude makes the change straight on the page (saved, with undo), and says what it did. */
+  const applyChange = async (target: Operation, instruction: string, shown: string): Promise<{ summary: string[]; before: OperationFields } | null> => {
     if (timers.current.has(target.id)) await saveNow(target.id); // Claude works from what's saved
-    setAi({ busy: true, note: `Drafting the change to ${target.name}…`, error: false, where: "home" });
+    const before = opsRef.current?.find((o) => o.id === target.id) ?? target;
+    setAi({ busy: true, note: `Editing ${target.name}…`, error: false, where: "home" });
     try {
+      if (mode === "simple") {
+        const r = await api<{ proposal: { summary: string[]; html: string } }>(`/api/operations/${target.id}/note-ai`, { method: "POST", body: { instruction } });
+        change(target.id, (f) => ({ ...f, content: { ...f.content, note: r.proposal.html } }));
+        setAi({ busy: false, note: null, error: false, where: "home" });
+        return { summary: r.proposal.summary, before: fieldsOf(before) };
+      }
       const r = await api<{ proposal: Proposal }>(`/api/operations/${target.id}/ai`, { method: "POST", body: { instruction } });
-      setProposal({ opId: target.id, instruction: shown, proposal: r.proposal });
+      const saved = await api<{ operation: Operation }>(`/api/operations/${target.id}/accept`, {
+        method: "POST",
+        body: { proposal: r.proposal, instruction: shown },
+      });
+      pushUndo(before);
+      replaceOp(saved.operation);
+      const old = new Map(before.content.blocks.map((b) => [b.id, JSON.stringify(b)]));
+      setRecent({ opId: target.id, ids: saved.operation.content.blocks.filter((b) => old.get(b.id) !== JSON.stringify(b)).map((b) => b.id) });
       setAi({ busy: false, note: null, error: false, where: "home" });
-      return true;
+      return { summary: r.proposal.summary, before: fieldsOf(before) };
     } catch (e) {
       setAi({ busy: false, note: (e as Error).message, error: true, where: "home" });
-      return false;
+      return null;
     }
+  };
+
+  const undoClaude = (index: number) => {
+    const m = chatRef.current[index];
+    if (!m?.undo || m.undo.done) return;
+    const { opId, before } = m.undo;
+    change(opId, () => before);
+    setRecent(null);
+    setChat((c) => [...c.map((x, i) => (i === index && x.undo ? { ...x, undo: { ...x.undo, done: true } } : x)), { role: "assistant", content: "Undone. The page is back as it was." }]);
   };
 
   /** From the home screen: find the operation, open it, then make the change there. */
@@ -440,31 +438,21 @@ export default function App() {
       }
       if (target.id !== currentId) go({ kind: "op", id: target.id });
       const instruction = context ? `${text}\n\n<earlier_conversation>\n${context}\n</earlier_conversation>` : text;
-      const ok = await propose(target, instruction, text);
-      if (ok) say(`Drafted a change to **${target.name}**. Check it and accept or discard.`, [{ id: target.id, name: target.name }]);
+      const done = await applyChange(target, instruction, text);
+      if (done) {
+        const lines = done.summary.length ? done.summary.map((x) => `- ${x}`).join("\n") : "- Nothing needed changing.";
+        setChat((c) => [
+          ...c,
+          {
+            role: "assistant",
+            content: `Changed **${target!.name}**:\n${lines}\n\nEdit it on the page, or tell me what to change.`,
+            sources: [{ id: target!.id, name: target!.name }],
+            undo: { opId: target!.id, before: done.before },
+          },
+        ]);
+      }
     } catch (e) {
       setAi({ busy: false, note: (e as Error).message, error: true, where: "home" });
-    }
-  };
-
-  const accept = async () => {
-    if (!proposal) return;
-    const before = opsRef.current?.find((o) => o.id === proposal.opId);
-    setAccepting(true);
-    try {
-      const r = await api<{ operation: Operation }>(`/api/operations/${proposal.opId}/accept`, {
-        method: "POST",
-        body: { proposal: proposal.proposal, instruction: proposal.instruction },
-      });
-      if (before) pushUndo(before);
-      replaceOp(r.operation);
-      setProposal(null);
-      setChat((c) => (c.length ? [...c, { role: "assistant", content: "Saved." }] : c));
-      setToast({ text: "Saved", undoId: proposal.opId });
-    } catch (e) {
-      setToast({ text: (e as Error).message });
-    } finally {
-      setAccepting(false);
     }
   };
 
@@ -500,7 +488,6 @@ export default function App() {
 
   const opsList = useMemo(() => (ops ?? []).map((o) => ({ id: o.id, name: o.name })), [ops]);
 
-  const proposalOp = proposal ? ops?.find((o) => o.id === proposal.opId) : null;
 
   return (
     <div className="shell" data-view={view ? "op" : "list"} data-sidebar={sidebarHidden ? "hidden" : undefined}>
@@ -644,7 +631,17 @@ export default function App() {
         )}
       </main>
 
-      {!proposal && !noteProposal && (
+      {recent && view?.kind === "op" && view.id === recent.opId && recent.ids.length > 0 && (
+        <style>
+          {recent.ids
+            .map((raw) => {
+              const at = `.op-editor .bn-block-outer[data-id="${raw.replace(/[^\w-]/g, "")}"] > .bn-block`;
+              return `${at} > .bn-block-content, ${at} > .bn-toggle-wrapper > .bn-toggle-slot > .bn-block-content`;
+            })
+            .join(",\n") + " { background: var(--claude-mark); border-radius: 4px; }"}
+        </style>
+      )}
+      {(
         <ClaudeBubble
           open={chatOpen}
           onOpen={() => setChatOpen(true)}
@@ -655,42 +652,23 @@ export default function App() {
           error={ai.error}
           onSend={askClaude}
           chat={chat}
-          onClear={() => setChat([])}
+          onClear={() => {
+            setChat([]);
+            setRecent(null);
+          }}
+          onUndo={undoClaude}
           onOpenOp={(id) => {
             setChatOpen(false);
             go({ kind: "op", id });
+            // Bring the first thing Claude changed into view.
+            const first = recentRef.current?.opId === id ? recentRef.current.ids[0] : null;
+            if (first)
+              setTimeout(() => {
+                document.querySelector(`.op-editor .bn-block-outer[data-id="${CSS.escape(first)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+              }, 350);
           }}
         />
       )}
-      {noteProposal && (
-        <NoteProposalSheet
-          instruction={noteProposal.instruction}
-          summary={noteProposal.summary}
-          before={noteProposal.before}
-          after={noteProposal.html}
-          onAccept={acceptNote}
-          onDiscard={() => {
-            setNoteProposal(null);
-            setChat((c) => (c.length ? [...c, { role: "assistant", content: "Discarded. Nothing changed." }] : c));
-          }}
-        />
-      )}
-
-      {proposal && proposalOp && (
-        <ProposalSheet
-          op={proposalOp}
-          consultants={proposalOp.content.consultants}
-          instruction={proposal.instruction}
-          proposal={proposal.proposal}
-          busy={accepting}
-          onAccept={accept}
-          onDiscard={() => {
-            setProposal(null);
-            setChat((c) => (c.length ? [...c, { role: "assistant", content: "Discarded. Nothing changed." }] : c));
-          }}
-        />
-      )}
-
       {toast && (
         <div className="toast" role="status">
           <span>{toast.text}</span>

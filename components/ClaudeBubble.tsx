@@ -4,7 +4,15 @@ import { useEffect, useRef } from "react";
 import AskBar from "./AskBar";
 import { Markdown } from "./Markdown";
 
-export type ChatMsg = { role: "user" | "assistant"; content: string; sources?: { id: string; name: string }[] };
+import type { OperationFields } from "@/lib/types";
+
+export type ChatMsg = {
+  role: "user" | "assistant";
+  content: string;
+  sources?: { id: string; name: string }[];
+  /** A change Claude made, and the page as it was before, so it can be undone. */
+  undo?: { opId: string; before: OperationFields; done?: boolean };
+};
 
 type Props = {
   open: boolean;
@@ -18,11 +26,12 @@ type Props = {
   onSend: (text: string) => void;
   chat: ChatMsg[];
   onClear: () => void;
+  onUndo: (index: number) => void;
   onOpenOp: (id: string) => void;
 };
 
 /** The one Claude: a bubble bottom right that opens a large chat. It knows the page you're on and can reach every page. */
-export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, note, error, onSend, chat, onClear, onOpenOp }: Props) {
+export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, note, error, onSend, chat, onClear, onUndo, onOpenOp }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
@@ -58,7 +67,7 @@ export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, not
           <div className="chat-log" ref={scroller}>
             {chat.length === 0 && (
               <div className="chat-empty">
-                <p>Ask about any operation, or tell me what to add or change. I&rsquo;ll draft it for you to accept.</p>
+                <p>Ask about any operation, or tell me what to add or change. I make the change on the page; you can edit it, undo it, or ask me to change it.</p>
                 <ul>
                   <li>{viewing ? "Add: keep the incision low if Mako" : "Add to TKR: keep the incision low if Mako"}</li>
                   <li>{viewing ? "What are the key steps here?" : "What tip–apex distance for a DHS?"}</li>
@@ -74,13 +83,18 @@ export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, not
               ) : (
                 <div key={i} className="chat-a">
                   <Markdown>{m.content}</Markdown>
-                  {!!m.sources?.length && (
+                  {(!!m.sources?.length || m.undo) && (
                     <p className="chat-sources">
-                      {m.sources.map((src) => (
-                        <button key={src.id} className="mono-btn" onClick={() => onOpenOp(src.id)}>
-                          {src.name} →
+                      {m.sources?.map((src) => (
+                        <button key={src.id} className="mono-btn" data-boxed="" onClick={() => onOpenOp(src.id)}>
+                          Open {src.name} →
                         </button>
                       ))}
+                      {m.undo && (
+                        <button className="mono-btn" onClick={() => onUndo(i)} disabled={m.undo.done || busy}>
+                          {m.undo.done ? "Undone" : "Undo"}
+                        </button>
+                      )}
                     </p>
                   )}
                 </div>
