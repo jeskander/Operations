@@ -100,7 +100,7 @@ type ProposeInput = {
 
 function pageText(op: Operation): string {
   const { content, name, region, subtitle } = op;
-  const { note: _note, ...rest } = content;
+  const { note: _note, debriefs: _debriefs, ...rest } = content;
   return JSON.stringify({ name, region, subtitle, ...rest });
 }
 
@@ -132,6 +132,7 @@ export async function proposeEdit(op: Operation, instruction: string, standing =
       const fresh = Array.isArray(input.new_consultants) ? input.new_consultants.filter((c) => c?.id && c?.name) : [];
       const content = normalize(input);
       content.note = op.content.note;
+      content.debriefs = op.content.debriefs;
       content.consultants = [...op.content.consultants, ...fresh.filter((c) => !op.content.consultants.some((o) => o.id === c.id))];
       return {
         summary: Array.isArray(input.summary) ? input.summary.filter((x) => typeof x === "string") : [],

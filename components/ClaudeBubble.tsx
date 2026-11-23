@@ -20,6 +20,7 @@ type Props = {
   onClose: () => void;
   /** The operation on screen, if any. */
   viewing: string | null;
+  viewingId: string | null;
   busy: boolean;
   note: string | null;
   error: boolean;
@@ -31,7 +32,7 @@ type Props = {
 };
 
 /** The one Claude: a bubble bottom right that opens a large chat. It knows the page you're on and can reach every page. */
-export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, note, error, onSend, chat, onClear, onUndo, onOpenOp }: Props) {
+export default function ClaudeBubble({ open, onOpen, onClose, viewing, viewingId, busy, note, error, onSend, chat, onClear, onUndo, onOpenOp }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
@@ -101,7 +102,7 @@ export default function ClaudeBubble({ open, onOpen, onClose, viewing, busy, not
               ),
             )}
           </div>
-          <AskBar id="ask-any" autoFocus placeholder={viewing ? "Ask, or say what to change…" : "Ask anything, or add a learning…"} busy={busy} note={note} error={error} onSend={onSend} />
+          <AskBar id="ask-any" currentId={viewingId} autoFocus placeholder={viewing ? "Ask, or say what to change…" : "Ask anything, or add a learning…"} busy={busy} note={note} error={error} onSend={onSend} />
         </aside>
       )}
       <button

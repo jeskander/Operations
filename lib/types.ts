@@ -28,6 +28,8 @@ export type VideoGroup = "full" | "other";
 export type Video = { id: string; title: string; url: string; source: string; note: string; group: VideoGroup };
 export type Link = { id: string; title: string; url: string; source: string; note: string };
 export type Question = { id: string; q: string; a: string };
+/** Something you dictated after a case, kept word for word. */
+export type Debrief = { id: string; at: string; text: string };
 
 export type Content = {
   kits: Kit[];
@@ -38,6 +40,8 @@ export type Content = {
   videos: Video[];
   links: Link[];
   questions: Question[];
+  /** Raw debriefs, newest first. Claude files them into the page; these keep your exact words. */
+  debriefs: Debrief[];
   /** The simple version's one note, as HTML. Empty until the simple version is first opened. */
   note: string;
 };

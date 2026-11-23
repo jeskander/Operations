@@ -347,3 +347,44 @@ export function Knowledge({ content, update }: { content: Content; update: Updat
     </>
   );
 }
+
+/** Your dictated debriefs, word for word, newest first. Claude has already filed them into the page. */
+export function Debriefs({ content, update }: { content: Content; update: Update }) {
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const when = (at: string) => {
+    const d = new Date(at);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+  if (!content.debriefs.length) return <p className="hint">Nothing yet. Long messages you send Claude about this operation are kept here, word for word.</p>;
+  return (
+    <div className="debriefs">
+      <p className="hint">Exactly what you dictated. Claude filed these into the steps; they stay here so nothing is lost.</p>
+      {content.debriefs.map((d) => (
+        <article key={d.id} className="debrief">
+          <header className="debrief-head">
+            <span className="label">{when(d.at)}</span>
+            {confirm === d.id ? (
+              <span className="debrief-actions">
+                <button
+                  className="mono-btn"
+                  data-danger=""
+                  onClick={() => update((c) => ({ ...c, debriefs: c.debriefs.filter((x) => x.id !== d.id) }))}
+                >
+                  Delete
+                </button>
+                <button className="mono-btn" onClick={() => setConfirm(null)}>
+                  Keep
+                </button>
+              </span>
+            ) : (
+              <button className="mono-btn" onClick={() => setConfirm(d.id)}>
+                Delete
+              </button>
+            )}
+          </header>
+          <p className="debrief-text">{d.text}</p>
+        </article>
+      ))}
+    </div>
+  );
+}

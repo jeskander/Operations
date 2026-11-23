@@ -5,7 +5,7 @@ import { newId } from "@/lib/content";
 import { visibleBlocks } from "@/lib/blocks";
 import type { Consultant, Content, Filters, Operation, OperationFields } from "@/lib/types";
 import Editable from "./Editable";
-import { KitSheet, Knowledge, Links, OpTech, Videos, type Update } from "./Lists";
+import { Debriefs, KitSheet, Knowledge, Links, OpTech, Videos, type Update } from "./Lists";
 import Sheet from "./Sheet";
 import dynamic from "next/dynamic";
 import Steps from "./Steps";
@@ -15,7 +15,7 @@ import type { Version } from "./VersionSwitch";
 const BlockEditor = dynamic(() => import("./BlockEditor"), { ssr: false, loading: () => <p className="empty reading">Loading the editor…</p> });
 
 
-export type Tab = "steps" | "videos" | "links" | "optech" | "knowledge";
+export type Tab = "steps" | "videos" | "links" | "optech" | "knowledge" | "debriefs";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "steps", label: "Steps" },
@@ -23,6 +23,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "links", label: "Links" },
   { id: "optech", label: "Op tech" },
   { id: "knowledge", label: "Knowledge" },
+  { id: "debriefs", label: "Debriefs" },
 ];
 
 type Props = {
@@ -64,6 +65,7 @@ export default function OperationPage(p: Props) {
     links: c.links.length,
     optech: c.kits.length,
     knowledge: c.questions.length,
+    debriefs: c.debriefs.length,
   };
 
   const addKit = (name: string) => {
@@ -153,7 +155,7 @@ export default function OperationPage(p: Props) {
         </div>
 
         <nav className="tabs" role="tablist">
-          {TABS.map((t) => (
+          {TABS.filter((t) => t.id !== "debriefs" || c.debriefs.length > 0 || tab === "debriefs").map((t) => (
             <button key={t.id} className="tab" role="tab" aria-selected={tab === t.id} onClick={() => p.setTab(t.id)}>
               {t.label}
               {counts[t.id] > 0 && <span className="tab-count">{counts[t.id]}</span>}
@@ -186,6 +188,7 @@ export default function OperationPage(p: Props) {
         {tab === "links" && <Links content={c} update={update} />}
         {tab === "optech" && <OpTech content={c} update={update} />}
         {tab === "knowledge" && <Knowledge content={c} update={update} />}
+        {tab === "debriefs" && <Debriefs content={c} update={update} />}
       </section>
 
       {kit && <KitSheet kit={kit} update={update} onClose={() => setManage(null)} />}

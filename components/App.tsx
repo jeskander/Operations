@@ -437,6 +437,11 @@ export default function App() {
         say(`Made a new page: **${target.name}**. Drafting it now…`);
       }
       if (target.id !== currentId) go({ kind: "op", id: target.id });
+      // Keep a long dictation word for word on the page, before Claude files it.
+      if (text.split(/\s+/).length >= 25) {
+        const entry = { id: newId(), at: new Date().toISOString(), text };
+        change(target.id, (f) => ({ ...f, content: { ...f.content, debriefs: [entry, ...f.content.debriefs] } }));
+      }
       const instruction = context ? `${text}\n\n<earlier_conversation>\n${context}\n</earlier_conversation>` : text;
       const done = await applyChange(target, instruction, text);
       if (done) {
@@ -647,6 +652,7 @@ export default function App() {
           onOpen={() => setChatOpen(true)}
           onClose={() => setChatOpen(false)}
           viewing={view?.kind === "op" ? (ops?.find((o) => o.id === view.id)?.name ?? null) : null}
+          viewingId={view?.kind === "op" ? view.id : null}
           busy={ai.busy}
           note={ai.note}
           error={ai.error}

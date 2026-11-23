@@ -2629,3 +2629,39 @@ details[open] > summary .chev {
 :root[data-theme="dark"] {
   --claude-mark: rgb(245 197 66 / 0.16);
 }
+
+/* In the chat there's room for a long dictated debrief. */
+.chat-drawer .ask textarea {
+  min-height: 3rem;
+  max-height: 40dvh;
+}
+
+.debriefs {
+  display: grid;
+  gap: 1rem;
+}
+
+.debrief {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.debrief-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.debrief-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.debrief-text {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}

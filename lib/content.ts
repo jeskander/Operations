@@ -16,6 +16,7 @@ export const emptyContent = (parts: string[] = DEFAULT_SECTIONS): Content => ({
   videos: [],
   links: [],
   questions: [],
+  debriefs: [],
   note: "",
 });
 
@@ -42,6 +43,9 @@ export function normalize(raw: unknown): Content {
     })),
     links: arr(c.links).map((l) => ({ id: id(l.id), title: str(l.title), url: str(l.url), source: str(l.source), note: str(l.note) })),
     questions: arr(c.questions).map((q) => ({ id: id(q.id), q: str(q.q), a: str(q.a) })),
+    debriefs: arr(c.debriefs)
+      .map((d) => ({ id: id(d.id), at: str(d.at), text: str(d.text) }))
+      .filter((d) => d.text.trim()),
     note: cleanNote(str(c.note)),
   };
 }
