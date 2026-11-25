@@ -20,6 +20,7 @@ export async function POST(req: Request) {
   const audio = form?.get("audio");
   if (!(audio instanceof Blob) || !audio.size) return Response.json({ error: "No audio" }, { status: 400 });
   const currentId = form?.get("currentId");
+  const previous = form?.get("previous");
 
   let own: string[] = [];
   let names: string[] = [];
@@ -41,7 +42,9 @@ export async function POST(req: Request) {
   out.append("file", audio, (audio as File).name || "dictation.webm");
   out.append("model", MODEL);
   out.append("language", "en");
-  out.append("prompt", transcriptionPrompt(own));
+  // The end of what was said just before keeps a long dictation flowing across pieces.
+  const before = typeof previous === "string" ? previous.slice(-500) : "";
+  out.append("prompt", before ? `${transcriptionPrompt(own).slice(0, 1300)} ${before}` : transcriptionPrompt(own));
   out.append("response_format", "json");
 
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {

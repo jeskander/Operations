@@ -2665,3 +2665,51 @@ details[open] > summary .chev {
   white-space: pre-wrap;
   line-height: 1.55;
 }
+
+/* Tags sit beside a short line, and drop under a long one instead of squeezing the text. */
+.op-editor .bn-block-content {
+  flex-wrap: wrap;
+}
+
+.op-editor .bn-block-content > .bn-inline-content {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* A phone on its side: the header scrolls away, and the chat gets the full height. */
+@media (max-height: 560px) {
+  .topbar {
+    position: relative;
+  }
+
+  .chat-drawer {
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: calc(84px + env(safe-area-inset-right, 0px));
+    width: auto;
+    height: auto;
+  }
+
+  .chat-empty ul {
+    display: none;
+  }
+}
+
+/* In the chat the text box takes the full width; Dictate and Send sit underneath. */
+.chat-drawer .ask-inner {
+  flex-wrap: wrap;
+  max-width: none;
+}
+
+.chat-drawer .ask-inner textarea {
+  flex: 1 1 100%;
+}
+
+.chat-drawer .ask-inner .mono-btn:first-of-type {
+  margin-left: auto;
+}
+
+.chat-drawer .ask-note {
+  max-width: none;
+}

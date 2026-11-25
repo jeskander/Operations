@@ -57,7 +57,11 @@ export default function AskBar({ placeholder, busy, note, error, onSend, id = "a
   };
 
   const status =
-    rec.state === "recording" ? `Recording ${clock(rec.elapsed)}. Tap Stop when you're done.` : rec.state === "transcribing" ? "Transcribing…" : rec.error ?? note;
+    rec.state === "recording"
+      ? `Recording ${clock(rec.elapsed)}${rec.pending ? " · transcribing as you go" : ""}. Tap Stop when you're done.`
+      : rec.state === "finishing"
+        ? "Finishing the transcript…"
+        : (rec.error ?? note);
 
   return (
     <div className="ask">
@@ -92,7 +96,7 @@ export default function AskBar({ placeholder, busy, note, error, onSend, id = "a
             type="button"
             className="mono-btn mic"
             aria-pressed={rec.state === "recording"}
-            disabled={rec.state === "transcribing"}
+            disabled={rec.state === "finishing"}
             onClick={() => (rec.state === "recording" ? rec.stop() : rec.start())}
             title="Dictate with an AI speech model"
           >

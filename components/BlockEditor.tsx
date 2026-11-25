@@ -258,7 +258,7 @@ async function uploadFile(file: File): Promise<string> {
 
 /** How a tag looks after a block's text. */
 const PILL =
-  "align-self:center;margin-left:.5rem;padding:0 .45rem;border-radius:999px;background:var(--paper-2);font-family:var(--mono);font-size:.64rem;font-weight:400;font-style:normal;letter-spacing:.06em;color:var(--graphite);white-space:nowrap;pointer-events:none;flex:none";
+  "align-self:center;margin-left:.5rem;padding:0 .45rem;border-radius:999px;background:var(--paper-2);font-family:var(--mono);font-size:.64rem;font-weight:400;font-style:normal;letter-spacing:.06em;color:var(--graphite);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;pointer-events:none;flex:0 1 auto";
 
 const stripIds = (b: BNBlock): Omit<BNBlock, "id"> => ({ type: b.type, props: b.props, content: b.content, children: (b.children ?? []).map((c) => stripIds(c) as BNBlock) });
 
