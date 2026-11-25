@@ -73,4 +73,6 @@ export type Settings = {
   parts: string[];
   /** The groups operations are filed under, in order. */
   groups: string[];
+  /** Extra words for dictation to get right: implants, people, local names. */
+  vocab: string[];
 };

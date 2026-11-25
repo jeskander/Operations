@@ -93,7 +93,7 @@ export default function App() {
   const mainRef = useRef<HTMLElement>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const undo = useRef(new Map<string, OperationFields[]>());
-  const [settings, setSettings] = useState<Settings>({ instructions: "", parts: [], groups: [] });
+  const [settings, setSettings] = useState<Settings>({ instructions: "", parts: [], groups: [], vocab: [] });
   const [feedback, setFeedback] = useState<Feedback[] | null>(null);
 
   // ---------- Load ----------

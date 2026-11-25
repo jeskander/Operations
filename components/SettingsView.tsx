@@ -21,19 +21,21 @@ export default function SettingsView({ settings, onSave, onLock, onBack, dark, o
   const [instructions, setInstructions] = useState(settings.instructions);
   const [parts, setParts] = useState(settings.parts.join("\n"));
   const [groups, setGroups] = useState(settings.groups.join("\n"));
+  const [vocab, setVocab] = useState(settings.vocab.join("\n"));
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
   const changed =
     instructions !== settings.instructions ||
     toLines(parts).join("\n") !== settings.parts.join("\n") ||
-    toLines(groups).join("\n") !== settings.groups.join("\n");
+    toLines(groups).join("\n") !== settings.groups.join("\n") ||
+    toLines(vocab).join("\n") !== settings.vocab.join("\n");
 
   const save = async () => {
     setBusy(true);
     setSaved(null);
     try {
-      await onSave({ instructions, parts: toLines(parts), groups: toLines(groups) });
+      await onSave({ instructions, parts: toLines(parts), groups: toLines(groups), vocab: toLines(vocab) });
       setSaved("Saved");
     } catch (e) {
       setSaved((e as Error).message);
@@ -81,6 +83,17 @@ export default function SettingsView({ settings, onSave, onLock, onBack, dark, o
           </label>
           <p className="hint">The headings operations are filed under on the home screen, in this order. One per line.</p>
           <textarea id="set-groups" className="textarea" data-mono="" value={groups} onChange={(e) => setGroups(e.target.value)} />
+        </div>
+
+        <div className="setting">
+          <label className="label" htmlFor="set-vocab">
+            Dictation words
+          </label>
+          <p className="hint">
+            Words dictation keeps getting wrong: implants, instruments, consultants, local names. One per line. Common T&amp;O terms (Vicryl, Monocryl, Ethibond,
+            Hohmann…) are already built in.
+          </p>
+          <textarea id="set-vocab" className="textarea" data-mono="" value={vocab} placeholder={"e.g. Kyani\nJourney II\nPhilos"} onChange={(e) => setVocab(e.target.value)} />
         </div>
 
         <div className="setting">

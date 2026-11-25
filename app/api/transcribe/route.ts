@@ -1,13 +1,16 @@
-import { listOperations } from "@/lib/data";
+import { correctTranscript } from "@/lib/claude";
+import { getSettings, listOperations } from "@/lib/data";
+import { ORTHO_TERMS, transcriptionPrompt } from "@/lib/vocab";
 
 export const maxDuration = 120;
 
 const MODEL = process.env.TRANSCRIBE_MODEL || "gpt-4o-transcribe";
 
 /**
- * Speech to text for dictated debriefs, using OpenAI's transcription model. The prompt carries
- * this notebook's own words (operations, kits, modes, consultants) so implant names and eponyms
- * come out right. The audio is passed straight through and never stored.
+ * Speech to text for dictated debriefs, in two passes:
+ * 1. OpenAI's transcription model, steered with T&O vocabulary and this notebook's own words.
+ * 2. Claude corrects any surgical terms it still misheard, changing nothing else.
+ * The audio is passed straight through and never stored.
  */
 export async function POST(req: Request) {
   const key = process.env.OPENAI_API_KEY;
@@ -18,26 +21,27 @@ export async function POST(req: Request) {
   if (!(audio instanceof Blob) || !audio.size) return Response.json({ error: "No audio" }, { status: 400 });
   const currentId = form?.get("currentId");
 
-  let vocab = "";
+  let own: string[] = [];
+  let names: string[] = [];
   try {
-    const ops = await listOperations();
+    const [ops, settings] = await Promise.all([listOperations(), getSettings()]);
     const cur = ops.find((o) => o.id === currentId);
-    const words = [
+    own = [
+      ...settings.vocab,
       ...(cur ? [...cur.content.kits.map((k) => k.name), ...cur.content.techniques.map((t) => t.name), ...cur.content.consultants.map((c) => c.name)] : []),
-      ...ops.map((o) => o.name),
+      ...ops.flatMap((o) => o.content.consultants.map((c) => c.name)),
     ];
-    vocab = [...new Set(words.filter(Boolean))].join(", ");
+    names = ops.map((o) => o.name);
   } catch {
-    // Transcribe without the vocabulary rather than fail.
+    // Transcribe with the built-in vocabulary rather than fail.
   }
-
-  const prompt = `A UK trauma and orthopaedic surgeon dictating learning points after an operation. British spelling. Use proper punctuation and sentences. Terms that may come up: ${vocab}, Bristow, Hohmann, Cobb, Mayo's, K-wire, Vicryl, Monocryl, TXA, II, DHS, TKR, THR, ORIF, AO, Mako, Attune, GMK Sphere, Oxford, tip–apex distance.`.slice(0, 3000);
+  own = [...new Set(own.map((w) => w.trim()).filter(Boolean))];
 
   const out = new FormData();
   out.append("file", audio, (audio as File).name || "dictation.webm");
   out.append("model", MODEL);
   out.append("language", "en");
-  out.append("prompt", prompt);
+  out.append("prompt", transcriptionPrompt(own));
   out.append("response_format", "json");
 
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -47,5 +51,11 @@ export async function POST(req: Request) {
   });
   const body = (await res.json().catch(() => null)) as { text?: string; error?: { message?: string } } | null;
   if (!res.ok) return Response.json({ error: body?.error?.message ?? `Transcription failed (${res.status})` }, { status: 502 });
-  return Response.json({ text: body?.text ?? "" });
+  const raw = body?.text ?? "";
+
+  try {
+    return Response.json({ text: await correctTranscript(raw, [...own, ...ORTHO_TERMS, ...names]) });
+  } catch {
+    return Response.json({ text: raw });
+  }
 }

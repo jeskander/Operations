@@ -172,7 +172,7 @@ export async function deleteFeedback(id: string) {
 
 // ---------- Settings ----------
 
-export const DEFAULT_SETTINGS: Settings = { instructions: "", parts: DEFAULT_SECTIONS, groups: REGIONS };
+export const DEFAULT_SETTINGS: Settings = { instructions: "", parts: DEFAULT_SECTIONS, groups: REGIONS, vocab: [] };
 
 export async function getSettings(): Promise<Settings> {
   const { data, error } = await supabase().from("op_settings").select("key, value");
@@ -183,12 +183,13 @@ export async function getSettings(): Promise<Settings> {
     instructions: typeof map.get("instructions") === "string" ? (map.get("instructions") as string) : "",
     parts: list(map.get("parts"), DEFAULT_SETTINGS.parts),
     groups: list(map.get("groups"), DEFAULT_SETTINGS.groups),
+    vocab: list(map.get("vocab"), []),
   };
 }
 
 export async function saveSettings(s: Partial<Settings>): Promise<Settings> {
   const rows = Object.entries(s)
-    .filter(([k]) => ["instructions", "parts", "groups"].includes(k))
+    .filter(([k]) => ["instructions", "parts", "groups", "vocab"].includes(k))
     .map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }));
   if (rows.length) {
     const { error } = await supabase().from("op_settings").upsert(rows);

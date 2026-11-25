@@ -233,6 +233,25 @@ const ASK_SYSTEM = `You answer questions from a UK trauma & orthopaedic surgeon 
 - Be terse and practical, like a senior colleague in theatre. Short bullet points. British spelling. Markdown only for bullets, bold and links.
 - You can't change pages in this reply. If they want something added, tell them to just ask (e.g. "add that to the page") and it will be drafted for them to accept.`;
 
+// ---------- Cleaning up dictation ----------
+
+/** Fix the speech model's mishearings of surgical terms, without changing anything else. */
+export async function correctTranscript(text: string, vocab: string[]): Promise<string> {
+  if (!text.trim()) return text;
+  const response = await anthropic().messages.create({
+    model: HAIKU,
+    max_tokens: 8000,
+    system: `You correct speech-to-text transcripts dictated by a UK trauma & orthopaedic surgeon after an operation.
+Fix only words the speech model misheard: surgical, anatomical, implant, instrument, suture, drug and eponym names, and abbreviations (e.g. "mono creel" → "Monocryl", "ethel bond" / "ethbond" → "Ethibond", "vicar ill" → "Vicryl", "bristol" → "Bristow" when it's the instrument, "home man" → "Hohmann", "tea x a" → "TXA", "2 o vicryl" → "2-0 Vicryl", "k wire" → "K-wire"). Use the vocabulary list, which holds this surgeon's own words.
+Keep everything else exactly as spoken: same words, order and meaning. Don't summarise, tidy, reword or add anything. Fix obvious punctuation only. British spelling.
+Reply with the corrected transcript only.`,
+    messages: [{ role: "user", content: `<vocabulary>\n${vocab.join(", ")}\n</vocabulary>\n\n<transcript>\n${text}\n</transcript>` }],
+  });
+  const out = response.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+  // Guard against anything other than a corrected transcript coming back.
+  return out && out.length > text.length * 0.6 && out.length < text.length * 1.6 ? out.replace(/^<transcript>\s*|\s*<\/transcript>$/g, "") : text;
+}
+
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 export async function answerQuestion(history: ChatTurn[], pages: Operation[], allNames: string[], viewing: string | null = null): Promise<string> {
